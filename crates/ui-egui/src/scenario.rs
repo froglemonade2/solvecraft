@@ -697,6 +697,16 @@ pub fn check(h: &mut Harness, e: &Value) -> Result<(), String> {
                     }
                 }
             }
+            "dims_clear" => {
+                // Dimension values never sit on a constraint glyph.
+                for (id, r) in crate::dim_view::text_rects() {
+                    for (g, p) in crate::sketch_tools::glyph_positions() {
+                        if r.intersects(egui::Rect::from_center_size(p, egui::vec2(15.0, 15.0))) {
+                            return Err(format!("dimension {id} ({r:?}) covers the glyph of {g} at {p:?}"));
+                        }
+                    }
+                }
+            }
             "sketching" => {
                 if doc["active_sketch"].is_null() == v.as_bool().unwrap_or(false) {
                     return Err(format!("sketching: want {v}, active sketch {}", doc["active_sketch"]));

@@ -1,0 +1,16 @@
+[
+  {"note": "A new dimension's value is placed clear of the constraint glyphs next to it (the rectangle's horizontal and vertical glyphs sit just outside its edges)."},
+  {"start": "sketch.create"},
+  {"click": {"plane": "XY"}},
+  {"start": "sketch.rectangle.two_point"},
+  {"click": {"sketch": [0, 0]}},
+  {"click": {"sketch": [40, 25]}},
+  {"key": "Escape"},
+  {"start": "sketch.dimension"},
+  {"click": {"sketch": [20, 0]}},
+  {"key": "Escape"},
+  {"start": "sketch.dimension"},
+  {"click": {"sketch": [40, 12]}},
+  {"key": "Escape"},
+  {"expect": {"dims_clear": true}}
+]

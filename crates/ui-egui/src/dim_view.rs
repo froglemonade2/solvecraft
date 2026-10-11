@@ -220,7 +220,14 @@ pub fn show(app: &mut SolveApp, ui: &egui::Ui, painter: &egui::Painter, proj: &P
         let half = Vec2::new(f64::from(size.x) * 0.5 * px, f64::from(size.y) * 0.5 * px);
         // Unplaced linear dimensions sit outside the shape they measure.
         let away = first_point(sk, &c.kind).and_then(|p| centres.get(p).copied()).unwrap_or(anchor);
-        let lay = dim_layout(&frame, c.text.or_else(|| default_text(&frame, away, px)), px, half);
+        // Other things on screen the value must stay clear of: constraint glyphs and the values
+        // of the dimensions drawn before this one.
+        let avoid: Vec<Rect> = crate::sketch_tools::glyph_positions()
+            .iter()
+            .map(|(_, g)| Rect::from_center_size(*g, vec2(GLYPH_CLEAR, GLYPH_CLEAR)))
+            .chain(drawn.iter().map(|d: &Drawn| d.text))
+            .collect();
+        let lay = dim_layout(&frame, c.text.or_else(|| open_default(&frame, away, px, half, size, &to, &avoid)), px, half);
         let stroke = Stroke::new(1.0, col);
         let mut segs = Vec::new();
         for line in &lay.lines {
@@ -253,6 +260,51 @@ pub fn show(app: &mut SolveApp, ui: &egui::Ui, painter: &egui::Painter, proj: &P
     }
     DRAWN.with(|d| *d.borrow_mut() = drawn);
     edit_box(app, ui.ctx());
+}
+
+/// Screen size of a constraint glyph plus a margin, which a default dimension keeps clear of.
+const GLYPH_CLEAR: f32 = 19.0;
+
+/// Does the polyline (screen points) pass through any of the rectangles?
+fn crosses(pts: &[Pos2], rects: &[Rect]) -> bool {
+    pts.windows(2).any(|w| {
+        let n = ((w[0].distance(w[1]) / 3.0).ceil() as usize).clamp(1, 400);
+        (0..=n).any(|i| {
+            let p = w[0].lerp(w[1], i as f32 / n as f32);
+            rects.iter().any(|r| r.contains(p))
+        })
+    })
+}
+
+/// The default place of a linear dimension that is not stored yet: the usual spot outside the
+/// shape, moved further out (then to the other side) while its value or line would cover
+/// something in `avoid` (screen rectangles). None for the other kinds, which have no default.
+fn open_default(
+    frame: &DimFrame,
+    away: Vec2,
+    px: f64,
+    half: Vec2,
+    size: egui::Vec2,
+    to: &dyn Fn(Vec2) -> Option<Pos2>,
+    avoid: &[Rect],
+) -> Option<Vec2> {
+    let base = default_text(frame, away, px)?;
+    let side = if base.y < 0.0 { -1.0 } else { 1.0 };
+    let step = (f64::from(size.y) + 4.0) * px;
+    let outward = (0..5).map(|k| base.y + side * f64::from(k) * step);
+    let inward = (0..5).map(|k| -(base.y + side * f64::from(k) * step));
+    for h in outward.chain(inward) {
+        let t = Vec2::new(base.x, h);
+        let lay = dim_layout(frame, Some(t), px, half);
+        let Some(tc) = to(lay.text) else { continue };
+        let text = Rect::from_center_size(tc, size).expand(2.0);
+        let blocked = avoid.iter().any(|a| a.intersects(text))
+            || lay.lines.iter().any(|l| crosses(&l.iter().filter_map(|q| to(*q)).collect::<Vec<_>>(), avoid));
+        if !blocked {
+            return Some(t);
+        }
+    }
+    Some(base)
 }
 
 /// A point a dimension measures (for the shape it belongs to).
