@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cmd;
+pub mod crash;
 pub mod frames;
 pub mod fuzz;
 pub mod legacy_ids;

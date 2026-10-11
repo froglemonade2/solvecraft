@@ -31,6 +31,11 @@ People trust SolveCraft with their designs; a crash loses their work. **This out
   `solvecraft_kernel::guard`, which turns a panic into `KernelError::Internal`.
 - **Last-resort guard:** `Session::execute` runs every command under `catch_unwind`; an escaped
   panic restores the design and reports `EngineError::Internal`.
+- **Crash reports:** `solvecraft_engine::crash` installs a panic hook in the desktop app that writes
+  every panic (caught or not) to `<data dir>/solvecraft/crashes/` (`SOLVECRAFT_CRASH_DIR` overrides;
+  newest 20 kept), and a per-session marker file reports crashes no hook sees (abort, segfault, kill)
+  at the next start (Linux). `solvecraft --crash-log` prints where they are. Look there first when
+  someone says the app crashed.
 - **Prove it:** every crash fix lands with a regression test (see `hostile_params_never_panic`).
 - Every production crate root carries
   `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
@@ -64,9 +69,11 @@ People trust SolveCraft with their designs; a crash loses their work. **This out
 - **Rust only.** Units are millimetres and radians internally; Z is up.
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests,
   assets, layers). Commit after every feature arc that builds.
-- **Publishing**: `origin` is github.com/bherbruck/solvecraft (private). After each commit that
-  passes `cargo xtask ci`: `git pull --rebase origin main` (re-run ci if it brought changes),
-  then `git push`. Never force-push. Never commit `plan/`, build dirs (`target*/`) or anything
+- **Publishing**: `origin` is the fork github.com/andreasfar/solvecraft; `upstream` is
+  github.com/bherbruck/solvecraft. **Never push to `upstream`** (no branches, tags or PRs-by-push);
+  it is read-only for us: fetch/pull from it only. After each commit that
+  passes `cargo xtask ci`: `git pull --rebase upstream main` (re-run ci if it brought changes),
+  then `git push origin`. Never force-push. Never commit `plan/`, build dirs (`target*/`) or anything
   produced by Fusion (oracle STEP/STL/PNG); check `git ls-files` before pushing.
 - **Never break wasm**: everything below the apps must build for `wasm32-unknown-unknown`
   (`cargo xtask wasm`, part of `cargo xtask ci`).

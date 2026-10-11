@@ -1,6 +1,6 @@
 //! SolveCraft desktop app.
 //!
-//! Usage: `solvecraft [--control <port>] [--sample] [design.solvecraft | part.step]`
+//! Usage: `solvecraft [--control <port>] [--sample] [--crash-log] [design.solvecraft | part.step]`
 //!
 //! A `.step`/`.stp` file opens as a new design holding the file's bodies (an Import feature); a
 //! `.3mf`/`.stl` file as a new design holding mesh bodies.
@@ -17,7 +17,8 @@ mod control_server;
 use solvecraft_engine::Session;
 use solvecraft_ui_egui::{Services, SolveApp};
 
-struct App(SolveApp);
+/// The app, and the crash folder whose session marker a clean exit removes.
+struct App(SolveApp, Option<std::path::PathBuf>);
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -43,6 +44,9 @@ impl eframe::App for App {
     }
     fn on_exit(&mut self) {
         solvecraft_ui_egui::recovery_ui::close(&mut self.0);
+        if let Some(dir) = &self.1 {
+            solvecraft_engine::crash::end_session(dir);
+        }
     }
 }
 
@@ -130,12 +134,30 @@ fn main() -> eframe::Result {
                 println!("solvecraft {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
+            "--crash-log" => {
+                match solvecraft_engine::crash::default_dir() {
+                    Some(dir) => {
+                        println!("crash reports: {}", dir.display());
+                        match solvecraft_engine::crash::latest(&dir) {
+                            Some(r) => println!("latest: {}", r.display()),
+                            None => println!("none yet"),
+                        }
+                    }
+                    None => println!("no crash folder on this system"),
+                }
+                return Ok(());
+            }
             "--help" | "-h" => {
-                println!("usage: solvecraft [--control PORT] [--sample] [design.solvecraft | part.step]");
+                println!("usage: solvecraft [--control PORT] [--sample] [--crash-log] [design.solvecraft | part.step]");
                 return Ok(());
             }
             _ => files.push(a),
         }
+    }
+    // Crashes leave a report in the crash folder (see `solvecraft_engine::crash`).
+    let crash_dir = solvecraft_engine::crash::default_dir();
+    if let Some(dir) = &crash_dir {
+        solvecraft_engine::crash::install(dir.clone(), env!("CARGO_PKG_VERSION"));
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -204,7 +226,13 @@ fn main() -> eframe::Result {
                 let every = if app.autosave_minutes > 0.0 { app.autosave_minutes * 60.0 } else { f64::MAX / 4.0 };
                 solvecraft_ui_egui::recovery_ui::start(&mut app, &dir, std::time::Duration::from_secs_f64(every.min(1e9)));
             }
-            Ok(Box::new(App(app)))
+            // Tell the user when the last session crashed, and where the report is.
+            if let Some(dir) = &crash_dir
+                && let Some(r) = solvecraft_engine::crash::begin_session(dir, env!("CARGO_PKG_VERSION")).last()
+            {
+                app.set_status(format!("SolveCraft closed unexpectedly last time. Crash report: {}", r.display()), true);
+            }
+            Ok(Box::new(App(app, crash_dir)))
         }),
     )
 }
