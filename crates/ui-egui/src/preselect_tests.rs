@@ -400,3 +400,72 @@ fn split_body_by_a_curved_face_sends_it_as_a_tool() {
     let p = apply_commands(&app, &d).unwrap().remove(0).1;
     assert!(p["tool"]["point"].is_array() && p.get("plane").is_none(), "{p}");
 }
+
+#[test]
+fn selected_curve_then_dimension_places_it_at_once() {
+    let mut app = app_with(json!([
+        {"command": "sketch.create", "params": {"plane": "XY"}},
+        {"command": "sketch.line", "params": {"points": [[0, 0], [30, 0]], "id": "l1"}},
+    ]));
+    assert!(app.session.doc.param("d1").is_none());
+    app.session.selection = vec![Sel::SketchCurve { id: "l1".into() }];
+    app.start("sketch.dimension");
+    assert!(app.tool.is_none(), "no tool: the dimension is already placed");
+    assert!(app.session.doc.param("d1").is_some());
+}
+
+#[test]
+fn selected_point_then_dimension_waits_for_its_partner() {
+    let mut app = app_with(json!([
+        {"command": "sketch.create", "params": {"plane": "XY"}},
+        {"command": "sketch.point", "params": {"point": [5, 5], "id": "p1"}},
+    ]));
+    app.session.selection = vec![Sel::SketchPoint { id: "p1".into() }];
+    app.start("sketch.dimension");
+    let t = app.tool.as_ref().expect("the tool is running");
+    assert_eq!(t.picks, vec!["p1".to_string()]);
+    assert!(app.session.doc.param("d1").is_none());
+}
+
+/// Typing width/height while drawing a rectangle must never panic, whatever is typed.
+#[test]
+fn typed_rectangle_dimensions_never_panic() {
+    use solvecraft_engine::geom::Vec2;
+    for three_d in [false, true] {
+        for (w, h) in [
+            ("50", "34"),
+            ("0", "10"),
+            ("10", "0"),
+            ("0", "0"),
+            ("-5", "-7"),
+            ("1e308", "1e308"),
+            ("abc", "3"),
+            ("", ""),
+            ("1/0", "2"),
+            ("0.0000001", "5"),
+        ] {
+            for cmd in ["sketch.rectangle.two_point", "sketch.rectangle.center"] {
+                let mut script = vec![json!({"command": "sketch.create", "params": {"plane": "XY"}})];
+                if three_d {
+                    script.push(json!({"command": "sketch.options", "params": {"sketch_3d": true}}));
+                }
+                let mut app = app_with(serde_json::Value::Array(script));
+                app.start(cmd);
+                crate::tools::place(&mut app, (Vec2::new(-20.5, -12.5), None));
+                let mut t = app.tool.take().unwrap();
+                crate::sketch_dims::sync(&mut t);
+                t.hover = Some((Vec2::new(29.5, 21.5), None));
+                for b in &mut t.dims {
+                    match b.label {
+                        "Width" => (b.value, b.locked) = (w.into(), true),
+                        "Height" => (b.value, b.locked) = (h.into(), true),
+                        _ => {}
+                    }
+                }
+                let e = crate::sketch_dims::effective(&app, &t, Vec2::new(29.5, 21.5));
+                app.tool = Some(t);
+                crate::tools::place(&mut app, (e, None));
+            }
+        }
+    }
+}

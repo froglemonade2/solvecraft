@@ -492,6 +492,35 @@ impl SolveApp {
                 return;
             }
         }
+        // Dimension: one or two selected sketch entities are dimensioned at once (the value opens
+        // for editing); a lone selected point waits in the tool for its partner.
+        if id == "sketch.dimension" {
+            let ents: Vec<(String, bool)> = self
+                .session
+                .selection
+                .iter()
+                .filter_map(|s| match s {
+                    solvecraft_engine::Sel::SketchCurve { id } => Some((id.clone(), false)),
+                    solvecraft_engine::Sel::SketchPoint { id } => Some((id.clone(), true)),
+                    _ => None,
+                })
+                .collect();
+            if ents.len() == 2 || (ents.len() == 1 && !ents[0].1) {
+                let ids: Vec<&String> = ents.iter().map(|e| &e.0).collect();
+                if let Ok(v) = self.run(id, json!({ "entities": ids }))
+                    && let Some(p) = v["param"].as_str()
+                {
+                    dim_view::edit_param(self, p);
+                }
+                return;
+            }
+            if let (1, Some(mut t)) = (ents.len(), tools::Tool::for_command(id)) {
+                t.picks.push(ents[0].0.clone());
+                self.tool = Some(t);
+                self.set_status(tools::hint(id), false);
+                return;
+            }
+        }
         // Construction toggle: selected sketch curves switch at once, otherwise pick them.
         // Construction (X): convert the selection, or switch construction mode; no pick tool.
         if id == "sketch.construction" {
