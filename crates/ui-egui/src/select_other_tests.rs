@@ -8,7 +8,7 @@ use crate::scenario::Harness;
 /// A sketch with two lines drawn on top of each other (l1, then l2), off the origin axes.
 fn two_lines() -> (Harness, Value) {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
     for _ in 0..2 {
         h.app.run("sketch.line", json!({"points":[[0,10],[20,10]],"infer":false,"connect":false})).unwrap();
@@ -120,7 +120,7 @@ fn the_viewport_menu_offers_select_other() {
 #[test]
 fn overlapping_bodies_list_both_and_the_hidden_one_can_be_picked() {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.app.run("solid.box", json!({"length":10,"width":10,"height":10,"body_name":"Inner"})).unwrap();
     h.app.run("solid.box", json!({"length":10,"width":10,"height":10,"corner":[5,5,5],"body_name":"Outer"})).unwrap();
     h.call("ui.view", json!({"view":"top"}));
@@ -138,7 +138,7 @@ fn overlapping_bodies_list_both_and_the_hidden_one_can_be_picked() {
 #[test]
 fn long_names_stay_inside_the_popup_and_remain_available_on_hover() {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.call("ui.resize", json!({"width":1000,"height":700}));
     let name = "Long assembly component ".repeat(12);
     h.app.run("solid.box", json!({"length":10,"width":10,"height":10,"body_name":name})).unwrap();
@@ -176,7 +176,7 @@ fn long_names_stay_inside_the_popup_and_remain_available_on_hover() {
 #[test]
 fn a_dialog_selection_input_takes_its_pick_from_the_list() {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.app.run("solid.box", json!({"length":10,"width":10,"height":10,"body_name":"Block"})).unwrap();
     h.call("ui.view", json!({"view":"home"}));
     h.call("ui.view", json!({"view":"fit"}));
@@ -198,7 +198,7 @@ fn a_dialog_selection_input_takes_its_pick_from_the_list() {
 #[test]
 fn rows_name_points_by_their_curves() {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
     h.app.run("sketch.circle.center", json!({"center":[10,10],"radius":3})).unwrap();
     h.app.cam.distance = 60.0;
@@ -212,7 +212,7 @@ fn rows_name_points_by_their_curves() {
 #[test]
 fn a_dense_spot_is_capped_per_kind_and_reports_the_total() {
     let mut h = Harness::new();
-    h.app.ui.show_origin = false;
+    h.app.set_origin_shown(false);
     h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
     // Thirty lines drawn on top of each other: one kind of thing, far beyond the per-kind cap.
     for _ in 0..30 {
