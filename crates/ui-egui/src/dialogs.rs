@@ -485,6 +485,8 @@ pub struct Dialog {
     /// An extrude Press Pull opened with nothing selected: its first pick may be a curved face or
     /// an edge, which reopens Press Pull on it (an offset or a fillet).
     pub press_pull: bool,
+    /// The operation the window chooses by itself (#6901).
+    pub op_auto: crate::op_auto::OpAuto,
 }
 
 #[derive(Clone, Debug)]
@@ -733,6 +735,7 @@ impl Dialog {
             other_objects: Vec::new(),
             shell_chain: Default::default(),
             press_pull: false,
+            op_auto: Default::default(),
         }
     }
 
@@ -2730,6 +2733,13 @@ fn auto_operation(app: &SolveApp, d: &mut Dialog) {
     {
         side = crate::smart_extrude::side(reach, 0);
     }
+    // Hidden bodies are out of its scope (#6901).
+    let mut params = params;
+    if let Some(shown) = solidcraft_engine::shown_scope(&app.session)
+        && params.get("participants").is_none()
+    {
+        params["participants"] = json!(shown);
+    }
     let Some(fresh) = solidcraft_engine::auto_operation(&app.session, &params).and_then(|op| OPS.iter().position(|o| *o == op)) else {
         return;
     };
@@ -2809,6 +2819,8 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
     let corner = app.viewport.corner.take();
     app.viewport.corner_ok = false;
     sync_feature_edit_sketch(app);
+    // A check of a window closed meanwhile ends too (#6901).
+    app.op_check.poll();
     if app.tree.redefine.is_none() {
         app.viewport.dialog_rect = None;
     }
@@ -2830,6 +2842,7 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
     }
     sync_reach(app, &mut d);
     auto_operation(app, &mut d);
+    crate::op_auto::update(app, &mut d, ctx);
     d.sync_thread(&app.session);
     d.sync_material(&app.session);
     update_measure(app, &mut d);
@@ -3104,6 +3117,8 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
         }
     }
     cancel |= !keep;
+    // A window still choosing its operation applies once its check is in (#6901).
+    let ok = crate::op_auto::hold_ok(&mut d, ok, &mut apply_again, cancel);
     if ok && !cancel && app.applying.is_none() {
         d.repeat_after_apply = apply_again;
         // Edit Text applies its own way: its live changes and OK are one undo step.
@@ -3716,6 +3731,7 @@ pub fn apply_commands(app: &SolveApp, d: &Dialog) -> Result<Vec<(String, Value)>
     crate::length_input::extra(&mut normalized.extra, |e| crate::length_input::expression(&app.session.doc, e, ValueKind::Length));
     let mut cmds = dialog_commands(app, &normalized)?;
     exact_regions(d, &mut cmds);
+    crate::op_auto::scope_targets(app, d, &mut cmds)?;
     if let Some((id, _)) = d.editing {
         let (cmd, mut params) = cmds.into_iter().next().ok_or("nothing to apply")?;
         if let Some(feature) = app.session.doc.feature(id) {

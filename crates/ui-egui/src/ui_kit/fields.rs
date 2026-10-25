@@ -276,6 +276,22 @@ pub(crate) fn dropdown(ui: &mut Ui, id: &str, selected: &mut usize, options: &[&
     })
 }
 
+/// [`dropdown`] that also says whether an option was clicked, the one already shown included (a
+/// pick of the shown option changes nothing, yet it is a choice).
+pub(crate) fn dropdown_picked(ui: &mut Ui, id: &str, selected: &mut usize, options: &[&str]) -> bool {
+    let text = options.get(*selected).copied().map(crate::i18n::tr_label).unwrap_or("");
+    let row = label(ui).to_string();
+    let mut picked = false;
+    dropdown_menu(ui, id, text, |ui| {
+        for (index, option) in options.iter().enumerate() {
+            let response = ui.selectable_value(selected, index, crate::i18n::tr_label(option));
+            picked |= response.clicked();
+            scenario::publish_handle(&format!("dialog:{row}:{option}"), response.rect.center());
+        }
+    });
+    picked
+}
+
 /// Dropdown with caller-supplied kit choices/actions, including disabled entries and stable
 /// application handles. Tokens: dropdown tokens. Use `dropdown` for a simple indexed list.
 pub(crate) fn dropdown_menu(ui: &mut Ui, id: impl egui::AsIdSalt, current: &str, add: impl FnOnce(&mut Ui)) -> Response {

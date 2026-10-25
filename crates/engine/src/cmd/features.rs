@@ -880,7 +880,8 @@ fn extrude(s: &mut Session, p: &Value) -> Result<Value> {
         p.to_mut()["participants"] = json!(parts);
     }
     if matches!(operation, Operation::Cut | Operation::Intersect) && targets.is_empty() && string_list(cmd, &p, "participants")?.is_empty() {
-        targets = shown_scope(s);
+        // With every body hidden, every body, as before.
+        targets = shown_scope(s).unwrap_or_default();
     }
     let kind = FeatureKind::Extrude {
         sketch: SketchId(sketch),
@@ -1026,17 +1027,6 @@ fn face_body_reached(s: &Session, sketch: u64) -> Result<Option<String>> {
     Ok(Some(body.name.clone()))
 }
 
-/// A cut or intersect that names no bodies leaves hidden bodies alone, as hiding a body to keep
-/// it out of a cut is the usual way to (#3961): while some of the active component's bodies
-/// are hidden, its shown ones, stored as the feature's targets so showing the others again
-/// later changes nothing. Empty (every body, as before) when none is hidden, or all are.
-fn shown_scope(s: &Session) -> Vec<String> {
-    let st = s.model.state();
-    let scope = active_scope(s, &st);
-    let shown: Vec<String> = scope.iter().filter(|b| s.body_visible(&b.name)).map(|b| b.name.clone()).collect();
-    if shown.len() == scope.len() { Vec::new() } else { shown }
-}
-
 /// The body whose face `sketch` is attached to (on the face itself, not offset from it), when
 /// it is one the active component works on ([`active_scope`]).
 fn sketch_face_body(s: &Session, sketch: u64) -> Option<String> {
@@ -1062,6 +1052,19 @@ fn face_join_targets(s: &Session, p: &Value, operation: Operation, sketches: &[u
         }
     }
     Ok(targets.into_iter().map(BodyName).collect())
+}
+
+/// The bodies a Join, Cut or Intersect that names none may change, less the hidden ones, when
+/// some of them are hidden: stored as the feature's `targets`, so a hidden body is left alone
+/// (#3961, #6901) and showing it again later doesn't change the model. None when every one is
+/// shown; empty when none is.
+pub fn shown_scope(s: &Session) -> Option<Vec<String>> {
+    let st = s.model.state();
+    let scope = active_scope(s, &st);
+    if scope.iter().all(|b| s.body_visible(&b.name)) {
+        return None;
+    }
+    Some(scope.into_iter().filter(|b| s.body_visible(&b.name)).map(|b| b.name.clone()).collect())
 }
 
 /// The bodies a feature of the active component works on when it names none: the component's

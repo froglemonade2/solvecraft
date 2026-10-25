@@ -189,6 +189,7 @@ pub mod navigation_bar;
 mod navigation_bar_view;
 pub use navigation::WebWheelGestures;
 pub mod network_prompt;
+pub mod op_auto;
 pub mod open_elsewhere;
 pub(crate) mod open_meshing;
 pub mod params_dialog;
@@ -520,6 +521,8 @@ pub struct SolveApp {
     /// A linked component's design edited in place, with its assembly around it.
     pub edit_in_place: edit_in_place::EditInPlace,
     pub(crate) pending_feature_edit: Option<feature_edit::PendingFeatureEdit>,
+    /// The open feature window's check of what its material does (#6901).
+    pub op_check: op_auto::OpCheck,
     /// A command recomputing the history (the marker moved, undo) computing off the window
     /// thread, and those asked for meanwhile ([`deferred`]).
     pub deferred: Option<deferred::Deferred>,
@@ -718,6 +721,7 @@ impl SolveApp {
             editing_state: None,
             edit_in_place: Default::default(),
             pending_feature_edit: None,
+            op_check: op_auto::OpCheck::default(),
             deferred: None,
             deferred_queue: Vec::new(),
             start_after_roll: None,

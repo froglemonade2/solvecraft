@@ -1,0 +1,279 @@
+//! The operation a feature window chooses by itself, from what its material does (#6901):
+//!
+//! - New Body when the material, joined, would be a separate piece of the body (or there is no
+//!   shown body to join), Join when it makes one body with what it touches, and, for Revolve and
+//!   the Box, Cylinder, Sphere and Torus, Cut when it lies inside a body. Extrude keeps its own
+//!   Cut ([`crate::smart_extrude`]). Pipe, Thicken and Boundary Fill don't choose.
+//! - What the material does is found by running the Join on a copy of the design, off the window
+//!   thread ([`OpCheck`]), so the choice is what OK makes.
+//! - The choice changes only when a finished check says so: no guess in between.
+//! - An operation picked by hand stays for good, whatever a check still running says; OK runs
+//!   what the window shows, and while the window still chooses, waits for its check.
+//! - A feature being edited keeps its operation.
+//! - Only shown bodies take part: when some bodies are hidden, the window names the shown ones as
+//!   the feature's `targets` ([`scope_targets`]).
+
+use serde_json::Value;
+use solidcraft_engine::{Addition, Session};
+
+use crate::SolveApp;
+use crate::dialogs::{Dialog, Kind, OPS};
+
+/// Operation indices (see [`OPS`]).
+pub const NEW: usize = 0;
+pub const JOIN: usize = 1;
+pub const CUT: usize = 2;
+
+/// A feature window's own choice of operation.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpAuto {
+    /// The operation was picked by hand: the window no longer chooses.
+    pub manual: bool,
+    /// The operation this window last chose (one that differs now was picked by hand).
+    set: Option<usize>,
+    /// Extrude: the additive operation the last finished check chose, held while the next runs.
+    held: Option<usize>,
+    /// A check for the current inputs is running.
+    pub pending: bool,
+    /// OK (with Apply's "again") waits for that check.
+    pub ok_waiting: Option<bool>,
+}
+
+/// How a window chooses.
+#[derive(Clone, Copy)]
+struct Rule {
+    /// Extrude: its own rule decides Cut; this one only New Body against Join.
+    extrude: bool,
+    /// Material inside a body is a Cut.
+    cut: bool,
+}
+
+fn rule(kind: &Kind) -> Option<Rule> {
+    match kind {
+        Kind::Extrude { .. } => Some(Rule { extrude: true, cut: false }),
+        Kind::Revolve { .. } => Some(Rule { extrude: false, cut: true }),
+        Kind::Loft { .. } | Kind::Sweep { .. } => Some(Rule { extrude: false, cut: false }),
+        Kind::Primitive { cmd, .. } => Some(Rule { extrude: false, cut: *cmd != "solid.coil" }),
+        _ => None,
+    }
+}
+
+fn operation(kind: &mut Kind) -> Option<&mut usize> {
+    match kind {
+        Kind::Extrude { operation, .. }
+        | Kind::Revolve { operation, .. }
+        | Kind::Loft { operation, .. }
+        | Kind::Sweep { operation, .. }
+        | Kind::Primitive { operation, .. } => Some(operation),
+        _ => None,
+    }
+}
+
+/// The finished checks and the one running, for the open window.
+#[derive(Default)]
+pub struct OpCheck {
+    running: Option<(u64, std::sync::mpsc::Receiver<Option<Addition>>)>,
+    done: Option<(u64, Option<Addition>)>,
+}
+
+impl OpCheck {
+    /// A check is running.
+    pub fn busy(&self) -> bool {
+        self.running.is_some()
+    }
+
+    /// Take in a finished check.
+    pub(crate) fn poll(&mut self) {
+        let Some((key, rx)) = &self.running else { return };
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.done = Some((*key, result));
+        self.running = None;
+    }
+
+    /// The finished check of `cmds` (`key`), or None while it runs; one is started when none
+    /// runs. A check for older inputs runs to its end first: the latest inputs go next.
+    fn result(&mut self, key: u64, scratch: impl FnOnce() -> Session, cmds: Vec<(String, Value)>) -> Option<Option<Addition>> {
+        self.poll();
+        if let Some((k, result)) = self.done
+            && k == key
+        {
+            return Some(result);
+        }
+        if self.running.is_none() {
+            self.start(key, scratch(), cmds);
+        }
+        self.done.filter(|(k, _)| *k == key).map(|(_, r)| r)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start(&mut self, key: u64, s: Session, cmds: Vec<(String, Value)>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new().name("operation check".into()).spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| solidcraft_engine::addition(&s, &cmds))).ok().flatten();
+            let _ = tx.send(result);
+        });
+        match spawned {
+            Ok(_) => self.running = Some((key, rx)),
+            Err(_) => self.done = Some((key, None)),
+        }
+    }
+
+    /// No threads on the web: check right away.
+    #[cfg(target_arch = "wasm32")]
+    fn start(&mut self, key: u64, s: Session, cmds: Vec<(String, Value)>) {
+        self.done = Some((key, solidcraft_engine::addition(&s, &cmds)));
+    }
+}
+
+/// The window's commands as the check runs them (New Body, Join or a Cut this window chose all
+/// run as a Join), with what tells them from other inputs.
+fn check_commands(cmds: &[(String, Value)], revision: u64) -> (Vec<(String, Value)>, u64) {
+    let mut out = cmds.to_vec();
+    for (_, p) in &mut out {
+        if let Some(op) = p.get_mut("operation")
+            && op.as_str().is_some_and(|o| matches!(o, "new" | "join" | "cut"))
+        {
+            *op = Value::from("join");
+        }
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(&out).unwrap_or_default().hash(&mut h);
+    revision.hash(&mut h);
+    (out, h.finish())
+}
+
+/// Bring the window's operation in step with its material (once per frame, after Extrude's own
+/// choice and before the window is drawn).
+pub fn update(app: &mut SolveApp, d: &mut Dialog, ctx: &egui::Context) {
+    d.op_auto.pending = false;
+    // A check still running is taken in whatever the window does now, so it never looks busy.
+    app.op_check.poll();
+    let picked = ctx.data_mut(|m| m.remove_temp::<bool>(picked_id())).unwrap_or(false);
+    let Some(rule) = rule(&d.kind) else { return };
+    if d.editing.is_some() {
+        return;
+    }
+    let Some(op) = operation(&mut d.kind).map(|op| *op) else { return };
+    let changed = if rule.extrude { !matches!(d.kind, Kind::Extrude { auto_op: true, .. }) } else { d.op_auto.set.is_some_and(|set| set != op) };
+    if picked || changed {
+        d.op_auto.manual = true;
+        // Extrude's own choice stops too.
+        if let Kind::Extrude { auto_op, .. } = &mut d.kind {
+            *auto_op = false;
+        }
+    }
+    if d.op_auto.manual {
+        return;
+    }
+    // Extrude cuts into a body by its own rule; this one doesn't undo that.
+    if rule.extrude && op == CUT {
+        d.op_auto.set = Some(op);
+        return;
+    }
+    // No shown body to join: nothing to check.
+    if solidcraft_engine::shown_scope(&app.session).is_some_and(|shown| shown.is_empty()) {
+        if let Some(slot) = operation(&mut d.kind) {
+            *slot = NEW;
+        }
+        d.op_auto.set = Some(NEW);
+        d.op_auto.held = Some(NEW);
+        return;
+    }
+    let Ok(cmds) = crate::dialogs::apply_commands(app, d) else {
+        d.op_auto.set = Some(op);
+        return;
+    };
+    let (cmds, key) = check_commands(&cmds, app.session.revision);
+    let session = &app.session;
+    let found = app.op_check.result(key, || session.scratch(), cmds);
+    let chosen = match found {
+        Some(Some(Addition::Apart)) => Some(NEW),
+        Some(Some(Addition::Joins)) => Some(JOIN),
+        Some(Some(Addition::Inside)) if rule.cut => Some(CUT),
+        // Extrude goes into material only by its own rule.
+        Some(Some(Addition::Inside)) => Some(JOIN),
+        // No check to go by (no body, a Join that fails): the operation stays.
+        Some(None) => None,
+        None => {
+            d.op_auto.pending = true;
+            // Extrude's own choice comes back every frame: hold the last finished one.
+            if rule.extrude { d.op_auto.held } else { None }
+        }
+    };
+    let now = chosen.unwrap_or(op);
+    if rule.extrude && found.is_some() {
+        d.op_auto.held = chosen;
+    }
+    if let Some(slot) = operation(&mut d.kind) {
+        *slot = now;
+    }
+    d.op_auto.set = Some(now);
+}
+
+/// Where a pick in an Operation row is noted for the next [`update`].
+pub(crate) fn picked_id() -> egui::Id {
+    egui::Id::new("op_auto_picked")
+}
+
+/// The Operation row of a window that chooses by itself: any pick there, the shown option
+/// included, is the user's, and the window stops choosing.
+pub fn op_row(ui: &mut egui::Ui, id: &str, operation: &mut usize) {
+    let picked = crate::dialogs::form_row(ui, "Operation", |ui| crate::ui_kit::dropdown_picked(ui, id, operation, &crate::dialogs::OP_LABELS));
+    if picked {
+        ui.ctx().data_mut(|d| d.insert_temp(picked_id(), true));
+    }
+}
+
+/// OK in a window still waiting for its check: it applies once the check is in. Returns whether
+/// OK applies now (`again`: Apply, which keeps the window open).
+pub fn hold_ok(d: &mut Dialog, ok: bool, again: &mut bool, cancel: bool) -> bool {
+    if cancel {
+        d.op_auto.ok_waiting = None;
+        return false;
+    }
+    if ok && d.op_auto.pending {
+        d.op_auto.ok_waiting = Some(*again);
+        return false;
+    }
+    if let Some(waiting) = d.op_auto.ok_waiting
+        && !d.op_auto.pending
+    {
+        d.op_auto.ok_waiting = None;
+        *again = waiting;
+        return true;
+    }
+    ok
+}
+
+/// The shown bodies as the `targets` of a new feature's Join, Cut or Intersect that names none,
+/// when some bodies are hidden: a hidden body is left alone. With none shown, such a feature has
+/// nothing to change.
+pub fn scope_targets(app: &SolveApp, d: &Dialog, cmds: &mut [(String, Value)]) -> Result<(), String> {
+    if rule(&d.kind).is_none() || d.editing.is_some() {
+        return Ok(());
+    }
+    let Some(shown) = solidcraft_engine::shown_scope(&app.session) else { return Ok(()) };
+    for (_, p) in cmds {
+        let changes = p.get("operation").and_then(Value::as_str).is_some_and(|o| OPS.contains(&o) && o != "new");
+        let named = ["targets", "participants"].iter().any(|k| p.get(*k).and_then(Value::as_array).is_some_and(|a| !a.is_empty()));
+        if !changes || named {
+            continue;
+        }
+        if shown.is_empty() {
+            return Err(crate::i18n::tr("dialog.no_shown_body").to_string());
+        }
+        if let Some(map) = p.as_object_mut() {
+            map.insert("targets".into(), Value::from(shown.clone()));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "op_auto_tests.rs"]
+mod tests;

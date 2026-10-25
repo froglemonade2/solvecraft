@@ -43,7 +43,8 @@ use solidcraft_doc::{Document, Model, ModelState};
 use solidcraft_geom::Vec3;
 
 pub use cmd::{
-    CommandInfo, CommandSpec, auto_operation, command_specs, dimension_roles, extrude_reach, find_command, resolve_design_links, standard_view,
+    Addition, CommandInfo, CommandSpec, addition, auto_operation, command_specs, dimension_roles, extrude_reach, find_command, resolve_design_links,
+    shown_scope, standard_view,
 };
 pub use solidcraft_doc as doc;
 pub use solidcraft_doc::Visibility;

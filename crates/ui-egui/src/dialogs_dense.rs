@@ -275,14 +275,8 @@ pub(super) fn rows(app: &mut SolveApp, ctx: &egui::Context, d: &mut Dialog, ui: 
             if two_sided(*direction) {
                 enter |= expr_row(ui, "Distance 2", distance2);
             }
-            form_row(ui, "Operation", |ui| {
-                let before = *operation;
-                combo(ui, "ex_op", &OP_LABELS, operation);
-                // A choice made by hand sticks.
-                if *operation != before {
-                    *auto_op = false;
-                }
-            });
+            // A choice made by hand sticks, the shown one included (#6901).
+            crate::op_auto::op_row(ui, "ex_op", operation);
             ui_kit::section(ui, "extrude_options", "Options", true, |ui| {
                 let was_thin = *thin;
                 let was_direction = *direction;
@@ -673,7 +667,7 @@ fn additional_rows(app: &mut SolveApp, d: &mut Dialog, ui: &mut egui::Ui) -> boo
                     });
                 }
             }
-            choice_row(ui, "Operation", "rv_op", operation, &OP_LABELS);
+            crate::op_auto::op_row(ui, "rv_op", operation);
         }
         Kind::Shell { thickness } => {
             // The direction below says which side the wall grows to; the label stays short enough
@@ -798,12 +792,12 @@ fn additional_rows(app: &mut SolveApp, d: &mut Dialog, ui: &mut egui::Ui) -> boo
             }
         }
         Kind::Loft { operation, rail_fit } => {
-            choice_row(ui, "Operation", "lf_op", operation, &OP_LABELS);
+            crate::op_auto::op_row(ui, "lf_op", operation);
             crate::dialogs_sweep::rail_fit_row(ui, "lf", rail_fit);
         }
         Kind::Sweep { operation, opts } => {
             enter |= crate::dialogs_sweep::rows_with(ui, opts, "sw", |ui| {
-                choice_row(ui, "Operation", "sw_op", operation, &OP_LABELS);
+                crate::op_auto::op_row(ui, "sw_op", operation);
             });
         }
         k @ Kind::Move { .. } => {
@@ -837,7 +831,7 @@ fn additional_rows(app: &mut SolveApp, d: &mut Dialog, ui: &mut egui::Ui) -> boo
                     });
                 });
             }
-            choice_row(ui, "Operation", "pr_op", operation, &OP_LABELS);
+            crate::op_auto::op_row(ui, "pr_op", operation);
         }
         Kind::Combine { operation, keep_tools } => {
             form_row(ui, "Operation", |ui| {
