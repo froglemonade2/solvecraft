@@ -139,7 +139,10 @@ fn material_inside_a_body_adds_nothing() {
     run(&mut s, "sketch.rectangle.two_point", json!({"p0": [6, 4], "p1": [7, 6]}));
     run(&mut s, "sketch.finish", json!({}));
     let ring = |x: f64| {
-        vec![("solid.revolve".to_string(), json!({"sketch": "Section", "profiles": [0], "axis": {"origin": [x, 5, 0], "dir": [0, 0, 1]}, "angle": "360 deg", "operation": "new"}))]
+        vec![(
+            "solid.revolve".to_string(),
+            json!({"sketch": "Section", "profiles": [0], "axis": {"origin": [x, 5, 0], "dir": [0, 0, 1]}, "angle": "360 deg", "operation": "new"}),
+        )]
     };
     assert_eq!(addition(&s, &ring(5.0)), Some(Addition::Inside), "a ring inside the cube");
 }

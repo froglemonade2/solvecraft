@@ -221,12 +221,13 @@ pub(crate) fn picked_id() -> egui::Id {
 }
 
 /// The Operation row of a window that chooses by itself: any pick there, the shown option
-/// included, is the user's, and the window stops choosing.
-pub fn op_row(ui: &mut egui::Ui, id: &str, operation: &mut usize) {
+/// included, is the user's, and the window stops choosing. Returns whether there was one.
+pub fn op_row(ui: &mut egui::Ui, id: &str, operation: &mut usize) -> bool {
     let picked = crate::dialogs::form_row(ui, "Operation", |ui| crate::ui_kit::dropdown_picked(ui, id, operation, &crate::dialogs::OP_LABELS));
     if picked {
         ui.ctx().data_mut(|d| d.insert_temp(picked_id(), true));
     }
+    picked
 }
 
 /// OK in a window still waiting for its check: it applies once the check is in. Returns whether

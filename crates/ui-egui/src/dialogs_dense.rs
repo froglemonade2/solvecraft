@@ -275,8 +275,11 @@ pub(super) fn rows(app: &mut SolveApp, ctx: &egui::Context, d: &mut Dialog, ui: 
             if two_sided(*direction) {
                 enter |= expr_row(ui, "Distance 2", distance2);
             }
-            // A choice made by hand sticks, the shown one included (#6901).
-            crate::op_auto::op_row(ui, "ex_op", operation);
+            // A choice made by hand sticks, the shown one included (#6901): Extrude's own choice
+            // stops before the next frame makes it.
+            if crate::op_auto::op_row(ui, "ex_op", operation) {
+                *auto_op = false;
+            }
             ui_kit::section(ui, "extrude_options", "Options", true, |ui| {
                 let was_thin = *thin;
                 let was_direction = *direction;

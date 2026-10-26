@@ -35,9 +35,9 @@ fn checked(h: &mut Harness) {
 
 fn op(h: &mut Harness) -> usize {
     match h.app.dialog.as_mut().map(|d| &mut d.kind) {
-        Some(Kind::Extrude { operation, .. } | Kind::Revolve { operation, .. } | Kind::Primitive { operation, .. } | Kind::Loft { operation, .. }) => {
-            *operation
-        }
+        Some(
+            Kind::Extrude { operation, .. } | Kind::Revolve { operation, .. } | Kind::Primitive { operation, .. } | Kind::Loft { operation, .. },
+        ) => *operation,
         other => panic!("a feature window: {other:?}"),
     }
 }
@@ -96,7 +96,9 @@ fn a_ring_round_a_hole_joins() {
     checked(&mut h);
     if let Some(d) = h.app.dialog.as_mut() {
         // The ring alone, not the disc inside it.
-        d.inputs[0].items.retain(|s| matches!(s, solidcraft_engine::Sel::Profile { index, .. } if *index == 1) || !matches!(s, solidcraft_engine::Sel::Profile { .. }));
+        d.inputs[0].items.retain(|s| {
+            matches!(s, solidcraft_engine::Sel::Profile { index, .. } if *index == 1) || !matches!(s, solidcraft_engine::Sel::Profile { .. })
+        });
     }
     checked(&mut h);
     assert_eq!(op(&mut h), JOIN);

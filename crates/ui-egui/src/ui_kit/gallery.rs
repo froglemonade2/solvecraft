@@ -1095,6 +1095,11 @@ const ELEMENTS: &[Element] = &[
             dropdown(ui, "gallery", &mut s.selected, &["One", "Two"]);
         });
     }),
+    element!("dropdown_picked", "dialog:row:Gallery", Some("dialog:Gallery"), |ui, s| {
+        row(ui, "Gallery", |ui| {
+            dropdown_picked(ui, "gallery_picked", &mut s.selected, &["One", "Two"]);
+        });
+    }),
     element!("selection_field", "dialog:row:Gallery", Some("dialog:Gallery"), |ui, _| {
         row(ui, "Gallery", |ui| {
             selection_field(ui, "Point 1", Selection { active: true, filled: true });

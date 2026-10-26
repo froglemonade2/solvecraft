@@ -1,3 +1,5 @@
 {
-  "en": { "dialog.no_shown_body": "No shown body to change: show one, or choose New Body" }
+  "en": { "dialog.no_shown_body": "No shown body to change: show one, or choose New Body" },
+  "ja": { "dialog.no_shown_body": "変更できる表示中のボディがありません。ボディを表示するか、新規ボディを選択してください" },
+  "zh": { "dialog.no_shown_body": "没有可更改的显示实体：请显示一个实体，或选择新建实体" }
 }
