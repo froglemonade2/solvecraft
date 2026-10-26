@@ -1449,7 +1449,7 @@ impl Dialog {
     /// point input takes the centre as a point. Inputs that take edges themselves keep the edge
     /// (Move's points find its centre, `dialogs_move::sel_point`).
     fn circle_centre_pick(&self, s: &Session, inp: &SelInput, h: &Hit, snap: Option<&FaceSnap>) -> Option<Sel> {
-        let Hit::Edge { body, index, mid } = h else { return None };
+        let Hit::Edge { body, index, mid, .. } = h else { return None };
         let a = inp.accept;
         let places = snaps_to_points(a);
         if a & EDGES != 0 || (a & selection::VERTICES == 0 && !places) {

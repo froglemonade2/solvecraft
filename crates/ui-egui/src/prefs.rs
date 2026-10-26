@@ -1768,14 +1768,17 @@ pub fn zoom_sign(app: &SolveApp) -> f64 {
     if app.preferences.zoom_reverse { -1.0 } else { 1.0 }
 }
 
-/// The model point under a screen position. Over empty space: the centre of the visible bodies
-/// and sketches (what Fit frames), or the view's centre when nothing is visible.
+/// The model point under a screen position: on a face, vertex, edge or sketch curve, the point
+/// the cursor is on (on an edge or a curve too, not its middle, which can be far off along a long
+/// one). Over empty space: the centre of the visible bodies and sketches (what Fit frames), or
+/// the view's centre when nothing is visible.
 pub(crate) fn pivot_under(app: &SolveApp, proj: &crate::viewport::Proj, at: Pos2) -> Vec3 {
     use crate::viewport::Hit;
     for h in crate::viewport::pick(app, proj, at) {
         match h {
-            Hit::Face { point, .. } | Hit::Vertex { point, .. } => return point,
-            Hit::Edge { mid, .. } => return mid,
+            Hit::Face { point, .. } | Hit::Vertex { point, .. } | Hit::Edge { point, .. } | Hit::SketchCurve { point, .. } => {
+                return point;
+            }
             _ => {}
         }
     }
@@ -6077,6 +6080,56 @@ mod tests {
         orbit(&mut app, rect, 40.0, 25.0, Some(at));
         let s = crate::viewport::projection(&app, rect).to_screen(pivot).unwrap();
         assert!(s.distance(at) < 2.0, "{s:?}");
+    }
+
+    /// A drag that starts on an edge turns around the edge's point under the cursor, not its
+    /// middle, and that point stays still on screen.
+    #[test]
+    fn orbiting_from_an_edge_turns_around_the_point_under_the_cursor() {
+        use crate::viewport::Hit;
+        let mut app = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+        app.run("solid.box", json!({"length": 200, "width": 40, "height": 40})).unwrap();
+        app.preferences.orbit_around = OrbitAround::Cursor;
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        app.fit_view();
+        let proj = crate::viewport::projection(&app, rect);
+        let st = app.session.world_state();
+        let m = st.bodies[0].mesh();
+        // A spot a fifth of the way along a visible edge, well away from its middle on screen.
+        let found = m.edges.iter().filter(|e| e.len() >= 2).find_map(|e| {
+            let (a, b) = (e[0], e[e.len() - 1]);
+            let at = proj.to_screen(a + (b - a) * 0.2)?;
+            let mid = proj.to_screen(crate::viewport::polyline_mid(e))?;
+            let first =
+                crate::viewport::pick(&app, &proj, at).into_iter().find(|h| matches!(h, Hit::Face { .. } | Hit::Edge { .. } | Hit::Vertex { .. }));
+            (rect.contains(at) && at.distance(mid) > 100.0 && matches!(first, Some(Hit::Edge { .. }))).then_some((at, mid))
+        });
+        let (at, mid) = found.unwrap();
+        let pivot = pivot_under(&app, &proj, at);
+        let on_screen = proj.to_screen(pivot).unwrap();
+        assert!(on_screen.distance(at) < 6.0, "the pivot is under the cursor: {on_screen:?} vs {at:?}");
+        assert!(on_screen.distance(mid) > 90.0, "not the edge's middle");
+        orbit(&mut app, rect, 40.0, 25.0, Some(at));
+        assert_eq!(app.viewport.orbit_pivot, Some(pivot));
+        let after = crate::viewport::projection(&app, rect).to_screen(pivot).unwrap();
+        assert!(after.distance(on_screen) < 2.0, "{on_screen:?} -> {after:?}");
+    }
+
+    /// On a sketch line too: the line's point under the cursor, not the view's middle.
+    #[test]
+    fn orbiting_from_a_sketch_line_turns_around_the_point_under_the_cursor() {
+        let mut app = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+        app.run("sketch.create", json!({"plane": "XY"})).unwrap();
+        app.run("sketch.line", json!({"points": [[-100, 0], [100, 0]]})).unwrap();
+        app.run("sketch.finish", json!({})).unwrap();
+        app.preferences.orbit_around = OrbitAround::Cursor;
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        app.fit_view();
+        let proj = crate::viewport::projection(&app, rect);
+        let on_line = Vec3::new(-60.0, 0.0, 0.0);
+        let at = proj.to_screen(on_line).unwrap();
+        let pivot = pivot_under(&app, &proj, at);
+        assert!(pivot.dist(on_line) < 2.0, "{pivot:?}");
     }
 
     /// A drag that starts over empty space turns around the visible geometry's centre, not a

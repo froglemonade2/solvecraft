@@ -223,7 +223,7 @@ fn right_click_on_a_face_of_a_selected_body_keeps_the_bodies() {
     assert_eq!(app.session.selection, both, "the right-click keeps the bodies it is about");
     assert!(!context_menu::items(&app, &Target::Viewport).iter().any(|i| i.label == "Create Sketch"), "the bodies' menu, not the face menu");
     // An edge and a vertex of a selected body count the same way.
-    app.viewport.hover = Some(Hit::Edge { body: first.clone(), index: 0, mid: Vec3::new(9.0, 9.0, 9.0) });
+    app.viewport.hover = Some(Hit::Edge { body: first.clone(), index: 0, mid: Vec3::new(9.0, 9.0, 9.0), point: Vec3::new(9.0, 9.0, 9.0) });
     context_menu::open(&mut app, pos2(400.0, 300.0), Default::default());
     assert_eq!(app.session.selection, both, "an edge of a selected body keeps the bodies");
     // A face of a body outside the selection is still picked, so the menu is about that face.
