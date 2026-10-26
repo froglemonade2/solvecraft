@@ -1470,6 +1470,8 @@ impl Session {
                 || id.starts_with("select.");
             steps.push(ComputedCommand { id: id.clone(), params: params.clone(), before, after: computed.doc.clone(), changed, reply });
         }
+        // What the source was primed with stays out of the session that is adopted (#6901).
+        computed.unprime();
         Ok(ComputedCommands { source: self, computed, steps })
     }
 

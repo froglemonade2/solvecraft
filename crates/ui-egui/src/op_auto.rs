@@ -14,7 +14,7 @@
 //!   the feature's `targets` ([`scope_targets`]).
 
 use serde_json::Value;
-use solidcraft_engine::{Addition, Session};
+use solidcraft_engine::Addition;
 
 use crate::SolveApp;
 use crate::dialogs::{Dialog, Kind, OPS};
@@ -69,11 +69,18 @@ fn operation(kind: &mut Kind) -> Option<&mut usize> {
     }
 }
 
+/// What a check found, with the Join it evaluated when the material joins.
+type Found = (Option<Addition>, Option<solidcraft_engine::Evaluated>);
+
 /// The finished checks and the one running, for the open window.
 #[derive(Default)]
 pub struct OpCheck {
-    running: Option<(u64, std::sync::mpsc::Receiver<Option<Addition>>)>,
+    /// The running check: its key, commands, the design revision it started on, its result.
+    running: Option<(u64, Vec<(String, Value)>, u64, std::sync::mpsc::Receiver<Found>)>,
     done: Option<(u64, Option<Addition>)>,
+    /// The Join the last check evaluated, with its commands and the design revision: OK of the
+    /// same commands takes it rather than computing it again.
+    joined: Option<(Vec<(String, Value)>, u64, solidcraft_engine::Evaluated)>,
 }
 
 impl OpCheck {
@@ -84,48 +91,64 @@ impl OpCheck {
 
     /// Take in a finished check.
     pub(crate) fn poll(&mut self) {
-        let Some((key, rx)) = &self.running else { return };
-        let result = match rx.try_recv() {
-            Ok(result) => result,
+        let Some((key, _, _, rx)) = &self.running else { return };
+        let (result, evaluated) = match rx.try_recv() {
+            Ok(found) => found,
             Err(std::sync::mpsc::TryRecvError::Empty) => return,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => (None, None),
         };
         self.done = Some((*key, result));
-        self.running = None;
+        if let Some((_, cmds, revision, _)) = self.running.take() {
+            self.joined = evaluated.map(|e| (cmds, revision, e));
+        }
+    }
+
+    /// The Join a check evaluated for exactly `cmds` at `revision`, for OK.
+    pub(crate) fn joined_for(&self, cmds: &[(String, Value)], revision: u64) -> Option<solidcraft_engine::Evaluated> {
+        self.joined.as_ref().filter(|(c, r, _)| c == cmds && *r == revision).map(|(_, _, e)| e.clone())
     }
 
     /// The finished check of `cmds` (`key`), or None while it runs; one is started when none
     /// runs. A check for older inputs runs to its end first: the latest inputs go next.
-    fn result(&mut self, key: u64, scratch: impl FnOnce() -> Session, cmds: Vec<(String, Value)>) -> Option<Option<Addition>> {
-        self.poll();
+    fn result(
+        &mut self,
+        key: u64,
+        ahead: impl FnOnce() -> solidcraft_engine::Ahead,
+        cmds: Vec<(String, Value)>,
+        revision: u64,
+        inside: bool,
+    ) -> Option<Option<Addition>> {
         if let Some((k, result)) = self.done
             && k == key
         {
             return Some(result);
         }
         if self.running.is_none() {
-            self.start(key, scratch(), cmds);
+            self.start(key, ahead(), cmds, revision, inside);
         }
         self.done.filter(|(k, _)| *k == key).map(|(_, r)| r)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn start(&mut self, key: u64, s: Session, cmds: Vec<(String, Value)>) {
+    fn start(&mut self, key: u64, ahead: solidcraft_engine::Ahead, cmds: Vec<(String, Value)>, revision: u64, inside: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
+        let job = cmds.clone();
         let spawned = std::thread::Builder::new().name("operation check".into()).spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| solidcraft_engine::addition(&s, &cmds))).ok().flatten();
-            let _ = tx.send(result);
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ahead.addition(&job, inside))).unwrap_or((None, None));
+            let _ = tx.send(found);
         });
         match spawned {
-            Ok(_) => self.running = Some((key, rx)),
+            Ok(_) => self.running = Some((key, cmds, revision, rx)),
             Err(_) => self.done = Some((key, None)),
         }
     }
 
     /// No threads on the web: check right away.
     #[cfg(target_arch = "wasm32")]
-    fn start(&mut self, key: u64, s: Session, cmds: Vec<(String, Value)>) {
-        self.done = Some((key, solidcraft_engine::addition(&s, &cmds)));
+    fn start(&mut self, key: u64, ahead: solidcraft_engine::Ahead, cmds: Vec<(String, Value)>, revision: u64, inside: bool) {
+        let (result, evaluated) = ahead.addition(&cmds, inside);
+        self.done = Some((key, result));
+        self.joined = evaluated.map(|e| (cmds, revision, e));
     }
 }
 
@@ -190,7 +213,7 @@ pub fn update(app: &mut SolveApp, d: &mut Dialog, ctx: &egui::Context) {
     };
     let (cmds, key) = check_commands(&cmds, app.session.revision);
     let session = &app.session;
-    let found = app.op_check.result(key, || session.scratch(), cmds);
+    let found = app.op_check.result(key, || session.ahead(), cmds, session.revision, rule.cut);
     let chosen = match found {
         Some(Some(Addition::Apart)) => Some(NEW),
         Some(Some(Addition::Joins)) => Some(JOIN),

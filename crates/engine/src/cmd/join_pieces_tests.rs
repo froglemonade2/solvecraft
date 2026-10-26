@@ -41,7 +41,7 @@ fn pieces_after_join(s: &Session, cmds: &[(String, Value)]) -> Vec<usize> {
 /// The verdict (does the material join?), checked against the Join's own result: one body in one
 /// piece, or not.
 fn verdict(label: &str, s: &Session, cmds: &[(String, Value)]) -> bool {
-    let one = addition(s, cmds).unwrap_or_else(|| panic!("{label}: no verdict")) != Addition::Apart;
+    let one = addition(s, cmds, false).unwrap_or_else(|| panic!("{label}: no verdict")) != Addition::Apart;
     let before: Vec<usize> = s.model.state().bodies.iter().map(|b| b.body.lumps().map_or(1, |l| l.len())).collect();
     let after = pieces_after_join(s, cmds);
     // Joined: no new body, and no body in more pieces than before (a bridge leaves fewer).
@@ -128,11 +128,11 @@ fn material_inside_a_body_adds_nothing() {
     let box_at = |corner: [f64; 3], size: f64| {
         vec![("solid.box".to_string(), json!({"length": size, "width": size, "height": size, "corner": corner, "operation": "new"}))]
     };
-    assert_eq!(addition(&s, &box_at([2.0, 2.0, 2.0], 4.0)), Some(Addition::Inside), "a box inside the cube");
-    assert_eq!(addition(&s, &box_at([2.0, 2.0, 6.0], 4.0)), Some(Addition::Inside), "a box sunk flush with the top");
-    assert_eq!(addition(&s, &box_at([2.0, 2.0, 8.0], 4.0)), Some(Addition::Joins), "a box standing out of the top");
-    assert_eq!(addition(&s, &box_at([2.0, 2.0, 10.0], 4.0)), Some(Addition::Joins), "a box on the top");
-    assert_eq!(addition(&s, &box_at([20.0, 2.0, 2.0], 4.0)), Some(Addition::Apart), "a box apart");
+    assert_eq!(addition(&s, &box_at([2.0, 2.0, 2.0], 4.0), true), Some(Addition::Inside), "a box inside the cube");
+    assert_eq!(addition(&s, &box_at([2.0, 2.0, 6.0], 4.0), true), Some(Addition::Inside), "a box sunk flush with the top");
+    assert_eq!(addition(&s, &box_at([2.0, 2.0, 8.0], 4.0), true), Some(Addition::Joins), "a box standing out of the top");
+    assert_eq!(addition(&s, &box_at([2.0, 2.0, 10.0], 4.0), true), Some(Addition::Joins), "a box on the top");
+    assert_eq!(addition(&s, &box_at([20.0, 2.0, 2.0], 4.0), true), Some(Addition::Apart), "a box apart");
     // A revolve whose volume sits inside the cube: a ring round its middle, inside its walls.
     let mut s = cube();
     run(&mut s, "sketch.create", json!({"plane": {"origin": [0, 5, 0], "x_dir": [1, 0, 0], "y_dir": [0, 0, 1]}, "name": "Section"}));
@@ -144,21 +144,21 @@ fn material_inside_a_body_adds_nothing() {
             json!({"sketch": "Section", "profiles": [0], "axis": {"origin": [x, 5, 0], "dir": [0, 0, 1]}, "angle": "360 deg", "operation": "new"}),
         )]
     };
-    assert_eq!(addition(&s, &ring(5.0)), Some(Addition::Inside), "a ring inside the cube");
+    assert_eq!(addition(&s, &ring(5.0), true), Some(Addition::Inside), "a ring inside the cube");
 }
 
 #[test]
 fn no_verdict_without_an_operation_or_a_body() {
     let s = Session::default();
-    assert_eq!(addition(&s, &[("solid.box".into(), json!({"length": 1, "width": 1, "height": 1, "operation": "new"}))]), None);
+    assert_eq!(addition(&s, &[("solid.box".into(), json!({"length": 1, "width": 1, "height": 1, "operation": "new"}))], false), None);
     let s = cube();
-    assert_eq!(addition(&s, &[("solid.fillet".into(), json!({"edges": [[10, 0, 5]], "radius": 1}))]), None);
-    assert_eq!(addition(&s, &[("solid.combine".into(), json!({"target": "Base", "tools": [], "operation": "join"}))]), None);
+    assert_eq!(addition(&s, &[("solid.fillet".into(), json!({"edges": [[10, 0, 5]], "radius": 1}))], false), None);
+    assert_eq!(addition(&s, &[("solid.combine".into(), json!({"target": "Base", "tools": [], "operation": "join"}))], false), None);
     // A cut keeps its operation: nothing to choose.
-    assert_eq!(addition(&s, &[("solid.box".into(), json!({"length": 1, "width": 1, "height": 1, "operation": "cut"}))]), None);
+    assert_eq!(addition(&s, &[("solid.box".into(), json!({"length": 1, "width": 1, "height": 1, "operation": "cut"}))], false), None);
     // A primitive placed apart, whichever of New Body and Join it has.
     let apart = json!({"length": 5, "width": 5, "height": 5, "corner": [20, 0, 0], "operation": "join"});
-    assert_eq!(addition(&s, &[("solid.box".into(), apart)]), Some(Addition::Apart));
+    assert_eq!(addition(&s, &[("solid.box".into(), apart)], false), Some(Addition::Apart));
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn hidden_bodies_are_out_of_scope() {
     assert_eq!(crate::shown_scope(&s), Some(vec!["Other".to_string()]));
     // A block on the hidden cube, with the shown bodies as its targets: apart from all of them.
     let on_hidden = json!({"length": 4, "width": 4, "height": 4, "corner": [2, 2, 10], "operation": "new", "targets": ["Other"]});
-    assert_eq!(addition(&s, &[("solid.box".into(), on_hidden)]), Some(Addition::Apart));
+    assert_eq!(addition(&s, &[("solid.box".into(), on_hidden)], false), Some(Addition::Apart));
     run(&mut s, "browser.visibility", json!({"items": ["Other"], "visible": false}));
     assert_eq!(crate::shown_scope(&s), Some(Vec::new()), "nothing shown");
 }

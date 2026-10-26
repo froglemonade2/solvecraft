@@ -77,6 +77,9 @@ fn an_extrude_apart_is_a_new_body_and_one_touching_joins() {
         h.step(&json!({"start": "solid.extrude"})).unwrap();
         checked(&mut h);
         assert_eq!(op(&mut h), want, "{p0:?}–{p1:?}");
+        // A Join the check evaluated is OK's: it isn't computed again.
+        let cmds = h.app.dialog.as_ref().and_then(|d| crate::dialogs::apply_commands(&h.app, d).ok()).unwrap_or_default();
+        assert_eq!(h.app.op_check.joined_for(&cmds, h.app.session.revision).is_some(), want == JOIN, "{p0:?}–{p1:?}");
         ok(&mut h);
         assert_eq!(bodies(&h).len(), if want == NEW { 2 } else { 1 }, "{p0:?}–{p1:?}");
     }

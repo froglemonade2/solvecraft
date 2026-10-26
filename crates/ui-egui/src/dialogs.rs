@@ -514,9 +514,15 @@ impl DialogComputation {
         if app.file_load.busy() || app.file_picker_busy() {
             return Err("a file operation is in progress".into());
         }
+        let cmds = apply_commands(app, d)?;
+        let mut session = app.session.scratch();
+        // The window's operation check already evaluated this Join (#6901).
+        if let Some(joined) = app.op_check.joined_for(&cmds, app.session.revision) {
+            session.prime(&joined);
+        }
         Ok(Self {
-            session: app.session.scratch(),
-            cmds: apply_commands(app, d)?,
+            session,
+            cmds,
             marker: d.editing.map(|(_, marker)| marker),
             editing: d
                 .editing
@@ -3131,7 +3137,7 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
                     app.applying = Some(job);
                     None
                 }
-                None => Some(run_dialog(app, &d)),
+                None => Some(run_primed(app, &d)),
             },
         };
         match run {
@@ -3633,6 +3639,18 @@ fn sels(d: &Dialog, i: usize) -> &[Sel] {
 /// Section Analysis with a section on and no plane picked: OK turns the section off.
 fn section_turns_off(s: &Session, inputs: &[selection::SelInput]) -> bool {
     s.section.is_some() && selection::items(inputs, 0).is_empty()
+}
+
+/// Run the dialog's commands on the window thread, taking the Join its operation check already
+/// evaluated for them (#6901).
+fn run_primed(app: &mut SolveApp, d: &Dialog) -> Result<(), String> {
+    let joined = apply_commands(app, d).ok().and_then(|cmds| app.op_check.joined_for(&cmds, app.session.revision));
+    if let Some(joined) = &joined {
+        app.session.prime(joined);
+    }
+    let r = run_dialog(app, d);
+    app.session.unprime();
+    r
 }
 
 pub(crate) fn run_dialog(app: &mut SolveApp, d: &Dialog) -> Result<(), String> {
