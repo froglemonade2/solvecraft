@@ -85,6 +85,8 @@ struct App {
     frames: u32,
     /// Started over the control channel: the window doesn't ask for the foreground.
     take_focus_unwanted: bool,
+    /// Coming forward after a close that asks about unsaved designs.
+    come_forward: come_forward::ComeForward,
     /// The graphics device: lost, it can't draw again (`App::watch_device`, #4172).
     gpu: Option<LostWatch>,
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -143,9 +145,10 @@ impl eframe::App for App {
             // Closed from the taskbar or a window switcher while another app had the focus: the
             // "save changes?" prompt is only seen once the window comes forward.
             if !self.solve.quit_requested {
-                come_forward::come_forward(ctx, _frame);
+                self.come_forward.start(std::time::Instant::now());
             }
         }
+        self.come_forward.tick(ctx, _frame);
         #[cfg(target_os = "macos")]
         for f in if self.solve.file_picker_busy() { Vec::new() } else { open_documents::take() } {
             self.solve.open_path_async(&f);
@@ -1066,6 +1069,7 @@ fn main() -> eframe::Result {
                 starting,
                 frames: 0,
                 take_focus_unwanted: control_port.is_some(),
+                come_forward: come_forward::ComeForward::default(),
                 gpu,
                 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
                 space_mouse,
