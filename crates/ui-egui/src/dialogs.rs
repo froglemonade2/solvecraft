@@ -2825,12 +2825,13 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
     let corner = app.viewport.corner.take();
     app.viewport.corner_ok = false;
     sync_feature_edit_sketch(app);
-    // A check of a window closed meanwhile ends too (#6901).
     app.op_check.poll();
     if app.tree.redefine.is_none() {
         app.viewport.dialog_rect = None;
     }
     let Some(mut d) = app.dialog.take() else {
+        // The window a check was for closed: it stops (#6901).
+        app.op_check.abandon();
         return;
     };
     // Edit Text lasts as long as its text: other design changes leave it open.

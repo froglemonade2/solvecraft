@@ -101,6 +101,27 @@ fn with_the_preference_off_the_window_keeps_its_operation() {
 }
 
 #[test]
+fn closing_the_window_stops_its_check() {
+    // A larger body, so the check is still running when the window closes.
+    let mut h = Harness::new();
+    h.app.run("solid.box", json!({"length": 40, "width": 40, "height": 10, "corner": [-20, -20, 0], "body_name": "Base"})).unwrap();
+    for (x, y) in [(-10, -10), (10, -10), (-10, 10), (10, 10)] {
+        h.app.run("solid.cylinder", json!({"radius": 3, "height": 10, "base": [x, y, 0], "operation": "cut"})).unwrap();
+    }
+    rect_sketch(&mut h, [20.0, -5.0], [30.0, 5.0]);
+    h.app.start("solid.extrude");
+    h.frames(1);
+    let progress = h.app.op_check.progress.clone();
+    h.app.dialog = None;
+    h.frames(1);
+    assert!(!h.app.op_check.busy(), "nothing waits for a window that is gone");
+    assert!(h.app.op_check.done.is_none() && h.app.op_check.joined.is_none(), "what it found is forgotten");
+    if let Some(progress) = progress {
+        assert!(progress.is_cancelled(), "the running check was told to stop");
+    }
+}
+
+#[test]
 fn a_ring_round_a_hole_joins() {
     let mut h = Harness::new();
     h.app.run("solid.box", json!({"length": 40, "width": 40, "height": 10, "corner": [-20, -20, 0], "body_name": "Base"})).unwrap();

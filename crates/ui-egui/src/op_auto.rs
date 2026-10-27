@@ -79,6 +79,8 @@ type Found = (Option<Addition>, Option<solidcraft_engine::Evaluated>);
 pub struct OpCheck {
     /// The running check: its key, commands, the design revision it started on, its result.
     running: Option<(u64, Vec<(String, Value)>, u64, std::sync::mpsc::Receiver<Found>)>,
+    /// What stops the running check's evaluation ([`OpCheck::abandon`]).
+    progress: Option<std::sync::Arc<solidcraft_engine::doc::progress::Progress>>,
     done: Option<(u64, Option<Addition>)>,
     /// The Join the last check evaluated, with its commands and the design revision: OK of the
     /// same commands takes it rather than computing it again.
@@ -91,6 +93,17 @@ impl OpCheck {
         self.running.is_some()
     }
 
+    /// The window it was for closed, or no longer chooses: stop its check (at the evaluation's
+    /// next feature) and forget what the checks found, so nothing waits for a window that is gone.
+    pub(crate) fn abandon(&mut self) {
+        if let Some(progress) = self.progress.take() {
+            progress.cancel();
+        }
+        self.running = None;
+        self.done = None;
+        self.joined = None;
+    }
+
     /// Take in a finished check.
     pub(crate) fn poll(&mut self) {
         let Some((key, _, _, rx)) = &self.running else { return };
@@ -100,6 +113,7 @@ impl OpCheck {
             Err(std::sync::mpsc::TryRecvError::Disconnected) => (None, None),
         };
         self.done = Some((*key, result));
+        self.progress = None;
         if let Some((_, cmds, revision, _)) = self.running.take() {
             self.joined = evaluated.map(|e| (cmds, revision, e));
         }
@@ -135,12 +149,20 @@ impl OpCheck {
     fn start(&mut self, key: u64, ahead: solidcraft_engine::Ahead, cmds: Vec<(String, Value)>, revision: u64, inside: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
         let job = cmds.clone();
+        let progress = std::sync::Arc::new(solidcraft_engine::doc::progress::Progress::default());
+        let watching = progress.clone();
         let spawned = std::thread::Builder::new().name("operation check".into()).spawn(move || {
-            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ahead.addition(&job, inside))).unwrap_or((None, None));
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                solidcraft_engine::doc::progress::watch(watching, || ahead.addition(&job, inside))
+            }))
+            .unwrap_or((None, None));
             let _ = tx.send(found);
         });
         match spawned {
-            Ok(_) => self.running = Some((key, cmds, revision, rx)),
+            Ok(_) => {
+                self.running = Some((key, cmds, revision, rx));
+                self.progress = Some(progress);
+            }
             Err(_) => self.done = Some((key, None)),
         }
     }
@@ -179,9 +201,14 @@ pub fn update(app: &mut SolveApp, d: &mut Dialog, ctx: &egui::Context) {
     // A check still running is taken in whatever the window does now, so it never looks busy.
     app.op_check.poll();
     let picked = ctx.data_mut(|m| m.remove_temp::<bool>(picked_id())).unwrap_or(false);
-    let Some(rule) = rule(&d.kind) else { return };
+    // A window that doesn't choose (or no longer does) has no check running for it.
+    let Some(rule) = rule(&d.kind) else {
+        app.op_check.abandon();
+        return;
+    };
     // Turned off in Preferences › Design: the window keeps its operation, as before.
     if d.editing.is_some() || !app.preferences.auto_operation {
+        app.op_check.abandon();
         return;
     }
     let Some(op) = operation(&mut d.kind).map(|op| *op) else { return };
