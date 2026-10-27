@@ -951,9 +951,12 @@ fn edit_box(app: &mut SolveApp, ctx: &egui::Context) {
                 }
                 Ok(reply) => {
                     clear_picks(app);
-                    match reply.get("defined").and_then(serde_json::Value::as_str) {
-                        Some(name) => app.set_status(format!("Dimension applied; parameter `{name}` defined"), false),
-                        None => app.set_status("Dimension applied", false),
+                    // A new dimension defines its parameter; an edited one renames its own (#4071).
+                    let named = reply.get("renamed").and_then(|r| r.get("to")).and_then(serde_json::Value::as_str);
+                    match (reply.get("defined").and_then(serde_json::Value::as_str), named) {
+                        (Some(name), _) => app.set_status(format!("Dimension applied; parameter `{name}` defined"), false),
+                        (None, Some(name)) => app.set_status(format!("Dimension applied; parameter named `{name}`"), false),
+                        (None, None) => app.set_status("Dimension applied", false),
                     }
                 }
             }

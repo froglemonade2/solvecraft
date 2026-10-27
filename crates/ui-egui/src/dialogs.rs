@@ -4597,6 +4597,8 @@ fn box_corner(s: &Session, fields: &[(&'static str, String)], p: Vec3, normal: O
         };
         // A plain length ("20 mm", "2 in"; a bare number has the design's unit by now) gives a
         // plain number (mm).
+        // A size typed as `l = 20` is placed by its value: `l` exists only once the box does.
+        let size = solidcraft_engine::doc::expr::definition(&size).map_or(size.clone(), |(_, rhs)| rhs.to_string());
         let plain = solidcraft_engine::doc::expr::is_literal(&size)
             .then(|| solidcraft_engine::doc::Document::eval_in(&Default::default(), &size, ValueKind::Length).ok())
             .flatten();

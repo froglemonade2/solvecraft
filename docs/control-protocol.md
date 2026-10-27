@@ -256,6 +256,13 @@ read in the design's units, exactly as if it were typed into the dimension box: 
 unit regardless of the design, pass an expression with one: `"value": "50 mm"` or
 `"value": "0.5 in"`. Angles are degrees unless the expression says otherwise.
 
+Any expression parameter of any command can also define a user parameter as it sets the value:
+`"distance": "depth = 15"` adds `depth` (15, read as the bare value would be) and stores `depth`
+in the input, in the same undo step. The reply names it in `defined` and lists every definition
+in `definitions: [{name, expression, unit}]`; a taken or reserved name fails the command and
+changes nothing. `parameters.change` with `"expression": "height = 12"` renames the parameter it
+changes instead (see the parameters guide).
+
 The viewport also shows an X/Y/Z-aligned dimension chain between the endpoints of the
 currently shown distance (centre, minimum or maximum), with each world-axis distance
 labelled separately as an absolute value (including zero).

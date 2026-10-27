@@ -1271,3 +1271,29 @@ fn a_shown_dimension_that_breaks_a_later_feature_reports_it_and_undoes() {
     assert_eq!(h.app.session.doc.to_json(), before);
     assert!(!failed(&h), "undo brings the fillet back");
 }
+
+/// Editing an existing dimension to `name = value` names its own parameter (#4071): `d1`
+/// becomes `width`, set to the value, in one undo step, and opening it again shows `width`'s
+/// value as its expression. No other parameter is made.
+#[test]
+fn editing_a_dimension_to_a_definition_names_its_parameter() {
+    let mut h = line([25., 0.]);
+    place(&mut h, &[[12.5, 0.]], [12.5, 8.]);
+    type_value(&mut h, "25");
+    h.step(&json!({"key":"Enter"})).unwrap();
+    h.settle();
+    let params = h.app.session.doc.params.len();
+    let undo = h.app.session.undo.len();
+    crate::dim_view::edit_param(&h.app, "d1");
+    h.settle();
+    type_value(&mut h, "width = 30");
+    h.step(&json!({"key":"Enter"})).unwrap();
+    let doc = &h.app.session.doc;
+    assert!(doc.param("d1").is_none(), "{:?}", h.app.status);
+    assert_eq!(doc.param("width").map(|p| p.expr.as_str()), Some("30"));
+    assert_eq!(doc.params.len(), params, "renamed, not added");
+    assert_eq!(h.app.session.undo.len(), undo + 1, "one undo step");
+    assert!(h.app.status.as_ref().is_some_and(|s| !s.2 && s.0.contains("`width`")), "{:?}", h.app.status);
+    let sk = doc.sketch(h.app.session.active_sketch.unwrap()).unwrap();
+    assert!(sk.constraints.iter().any(|c| c.param.as_deref() == Some("width") && c.kind.value().is_some_and(|v| (v - 30.0).abs() < 1e-6)));
+}

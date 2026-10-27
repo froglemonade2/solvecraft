@@ -1185,6 +1185,12 @@ impl Session {
                 Err(EngineError::Internal(spec.id.to_string(), msg))
             }
         };
+        // A value typed as `name = expression` defines the user parameter `name` (#4071), in the
+        // same undo step; a refused definition fails the command, which leaves the design as it was.
+        let r = match r {
+            Ok((v, live_edit)) if params::has_definition(params) => self.define_inline(spec.id, v).map(|v| (v, live_edit)),
+            r => r,
+        };
         // A parameter error that did not name the command names it here: the engine knows which
         // command ran, and the reader of the parameters may not (#6651).
         let r = match r {
@@ -1270,6 +1276,20 @@ impl Session {
             crash::command_done(self.crash_journal, changed, &before, &self.doc, spec.id, given, failed.map_or(Ok(()), Err));
         }
         result
+    }
+
+    /// Store the definitions a command left in the design (`Document::define_inline`): its
+    /// result names them, `defined` the first (as `sketch.dimension` does) and `definitions` all.
+    fn define_inline(&mut self, id: &str, mut v: Value) -> Result<Value> {
+        let mut doc = (*self.doc).clone();
+        let defined = doc.define_inline().map_err(|e| EngineError::BadParams { cmd: id.to_string(), msg: e.to_string() })?;
+        let Some(first) = defined.first() else { return Ok(v) };
+        if let Some(out) = v.as_object_mut() {
+            out.insert("defined".into(), serde_json::json!(first.name));
+            out.insert("definitions".into(), serde_json::json!(defined));
+        }
+        self.doc = Arc::new(doc);
+        Ok(v)
     }
 
     /// A sketch command's result gets `created`: the ids of the points, curves, constraints and
