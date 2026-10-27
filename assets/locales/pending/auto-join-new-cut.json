@@ -4,10 +4,30 @@
     "prefs.auto_operation": "Choose the operation automatically",
     "prefs.auto_operation_note": "Feature windows pick Join, New Body or Cut from what the new material touches, until you pick one. Off: they keep the operation they open with."
   },
+  "ar": {
+    "dialog.no_shown_body": "لا يوجد جسم ظاهر لتغييره: أظهر جسمًا، أو اختر «جسم جديد»",
+    "prefs.auto_operation": "اختيار العملية تلقائيًا",
+    "prefs.auto_operation_note": "تختار نوافذ الميزات «ضم» أو «جسم جديد» أو «قص» بحسب ما تلامسه المادة الجديدة، إلى أن تختار عملية بنفسك. عند الإيقاف: تحتفظ بالعملية التي تُفتح بها."
+  },
+  "he": {
+    "dialog.no_shown_body": "אין גוף מוצג לשינוי: הציגו גוף, או בחרו „גוף חדש”",
+    "prefs.auto_operation": "בחירת הפעולה באופן אוטומטי",
+    "prefs.auto_operation_note": "חלונות הפיצ'רים בוחרים „איחוד”, „גוף חדש” או „הסרה” לפי מה שהחומר החדש נוגע בו, עד שתבחרו פעולה בעצמכם. כבוי: הם שומרים על הפעולה שאיתה נפתחו."
+  },
   "ja": {
     "dialog.no_shown_body": "変更できる表示中のボディがありません。ボディを表示するか、新規ボディを選択してください",
     "prefs.auto_operation": "操作を自動で選択",
     "prefs.auto_operation_note": "フィーチャーのウィンドウは、新しい形状が何に接するかから結合・新規ボディ・切り取りを選びます（手動で選ぶまで）。オフ：開いたときの操作のままです。"
+  },
+  "tr": {
+    "dialog.no_shown_body": "Değiştirilecek görünür gövde yok: bir gövdeyi gösterin ya da Yeni gövde seçin",
+    "prefs.auto_operation": "İşlemi otomatik seç",
+    "prefs.auto_operation_note": "Özellik pencereleri, yeni malzemenin neye değdiğine göre Birleştir, Yeni gövde ya da Kes işlemini seçer; siz bir işlem seçene kadar. Kapalıyken açıldıkları işlemi korurlar."
+  },
+  "vi": {
+    "dialog.no_shown_body": "Không có thân khối đang hiển thị để thay đổi: hãy hiển thị một thân khối, hoặc chọn “Tạo mới Thân khối”",
+    "prefs.auto_operation": "Tự động chọn thao tác",
+    "prefs.auto_operation_note": "Cửa sổ tính năng chọn “Nối liền”, “Tạo mới Thân khối” hoặc “Cắt” theo những gì vật liệu mới chạm vào, cho đến khi bạn tự chọn. Tắt: cửa sổ giữ nguyên thao tác lúc mở."
   },
   "zh": {
     "dialog.no_shown_body": "没有可更改的显示实体：请显示一个实体，或选择新建实体",
