@@ -139,6 +139,13 @@ impl eframe::App for App {
         if ctx.input(|i| i.viewport().close_requested()) && !self.solve.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             solidcraft_ui_egui::documents::request_quit(&mut self.solve);
+            // Closed from the taskbar or a window switcher while another app had the focus: the
+            // "save changes?" prompt is only seen once the window comes forward.
+            if !self.solve.quit_requested {
+                for c in come_forward(ctx.input(|i| (i.viewport().focused, i.viewport().minimized))) {
+                    ctx.send_viewport_cmd(c);
+                }
+            }
         }
         #[cfg(target_os = "macos")]
         for f in if self.solve.file_picker_busy() { Vec::new() } else { open_documents::take() } {
@@ -300,6 +307,23 @@ impl DialogFolder {
 
 /// Linux file dialogs match patterns by case, so each extension goes in as lower and upper
 /// case, plus FreeCAD's own mixed casing.
+/// What brings a window in the background (`focused`, `minimized`) to the front. Focus raises it
+/// on X11, Windows and macOS when the system allows; the attention request is what native Wayland
+/// has (winit activates the window through xdg-activation, or the compositor marks its taskbar
+/// entry) and marks the taskbar entry where focus was refused. A focused window is left alone.
+fn come_forward((focused, minimized): (Option<bool>, Option<bool>)) -> Vec<egui::ViewportCommand> {
+    if focused == Some(true) {
+        return Vec::new();
+    }
+    let mut commands = Vec::new();
+    if minimized == Some(true) {
+        commands.push(egui::ViewportCommand::Minimized(false));
+    }
+    commands.push(egui::ViewportCommand::Focus);
+    commands.push(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+    commands
+}
+
 fn case_variants(exts: &[&str]) -> Vec<String> {
     let mut all: Vec<String> = Vec::new();
     for e in exts {
@@ -1281,6 +1305,20 @@ mod dialog_folder_tests {
 
 #[cfg(test)]
 mod viewport_tests {
+    /// A close that stops at "save changes?" brings a background or minimized window forward,
+    /// and leaves a window the user is already in alone.
+    #[test]
+    fn a_window_closed_from_the_background_comes_forward() {
+        use eframe::egui::{UserAttentionType, ViewportCommand as C};
+        let forward = [C::Focus, C::RequestUserAttention(UserAttentionType::Informational)];
+        assert!(super::come_forward((Some(true), Some(false))).is_empty());
+        assert_eq!(super::come_forward((Some(false), Some(false))), forward);
+        assert_eq!(super::come_forward((None, None)), forward, "unknown focus counts as background");
+        let minimized = super::come_forward((Some(false), Some(true)));
+        assert_eq!(minimized.first(), Some(&C::Minimized(false)));
+        assert_eq!(minimized.get(1..), Some(&forward[..]));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_preserves_the_bundle_icon_instead_of_setting_a_runtime_bitmap() {
