@@ -55,6 +55,9 @@ pub(super) fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
         setting::offer_stand_up(app, ui);
         ui_kit::text(ui, app.tr("prefs.stand_up_note"), ui_kit::Text::Hint("stand_up"));
         setting::extrude_auto_to_object(app, ui);
+        let auto = setting::auto_operation(app, ui);
+        crate::scenario::publish_handle("prefs:auto_operation", auto.rect.center());
+        ui_kit::text(ui, app.tr("prefs.auto_operation_note"), ui_kit::Text::Hint("auto_operation"));
         setting::hide_origin(app, ui);
         ui_kit::text(ui, app.tr("ui.hide_origin_note"), ui_kit::Text::Hint("hide_origin"));
     });

@@ -86,6 +86,21 @@ fn an_extrude_apart_is_a_new_body_and_one_touching_joins() {
 }
 
 #[test]
+fn with_the_preference_off_the_window_keeps_its_operation() {
+    assert!(serde_json::from_value::<crate::prefs::Prefs>(json!({})).unwrap().auto_operation, "on for saved settings without it");
+    let mut h = cube();
+    h.app.preferences.auto_operation = false;
+    rect_sketch(&mut h, [30.0, 0.0], [40.0, 10.0]);
+    h.step(&json!({"start": "solid.extrude"})).unwrap();
+    h.frames(3);
+    assert!(!h.app.op_check.busy(), "no check runs");
+    assert!(h.app.dialog.as_ref().is_some_and(|d| !d.op_auto.pending));
+    assert_eq!(op(&mut h), JOIN, "Extrude keeps its own Join, as before");
+    ok(&mut h);
+    assert_eq!(bodies(&h).len(), 1, "the Join apart makes one body in two pieces");
+}
+
+#[test]
 fn a_ring_round_a_hole_joins() {
     let mut h = Harness::new();
     h.app.run("solid.box", json!({"length": 40, "width": 40, "height": 10, "corner": [-20, -20, 0], "body_name": "Base"})).unwrap();

@@ -25,6 +25,8 @@ makes; it changes only when that check is in, and OK waits for it. An operation 
 and a feature you edit keeps its own. Pipe, Thicken and Boundary Fill start as a New Body. Only
 shown bodies take part: with some bodies hidden, the feature names the shown ones as its targets,
 so a hidden body is never joined or cut, and showing it again later changes nothing.
+**Choose the operation automatically** (Preferences › Design, on by default) turns this choice
+off: each window then keeps the operation it opens with, Extrude its own Join or Cut, as before.
 
 A Join you pick whose material touches none of its target bodies still joins it, to the first
 one as a separate piece, and the feature's warning says so: "`Body1` is now in 2 separate

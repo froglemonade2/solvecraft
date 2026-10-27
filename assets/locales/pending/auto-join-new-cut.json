@@ -1,5 +1,17 @@
 {
-  "en": { "dialog.no_shown_body": "No shown body to change: show one, or choose New Body" },
-  "ja": { "dialog.no_shown_body": "変更できる表示中のボディがありません。ボディを表示するか、新規ボディを選択してください" },
-  "zh": { "dialog.no_shown_body": "没有可更改的显示实体：请显示一个实体，或选择新建实体" }
+  "en": {
+    "dialog.no_shown_body": "No shown body to change: show one, or choose New Body",
+    "prefs.auto_operation": "Choose the operation automatically",
+    "prefs.auto_operation_note": "Feature windows pick Join, New Body or Cut from what the new material touches, until you pick one. Off: they keep the operation they open with."
+  },
+  "ja": {
+    "dialog.no_shown_body": "変更できる表示中のボディがありません。ボディを表示するか、新規ボディを選択してください",
+    "prefs.auto_operation": "操作を自動で選択",
+    "prefs.auto_operation_note": "フィーチャーのウィンドウは、新しい形状が何に接するかから結合・新規ボディ・切り取りを選びます（手動で選ぶまで）。オフ：開いたときの操作のままです。"
+  },
+  "zh": {
+    "dialog.no_shown_body": "没有可更改的显示实体：请显示一个实体，或选择新建实体",
+    "prefs.auto_operation": "自动选择操作",
+    "prefs.auto_operation_note": "特征窗口根据新材料接触的对象选择连接、新建实体或剪切，直到您手动选择。关闭：保持窗口打开时的操作。"
+  }
 }

@@ -10,6 +10,8 @@
 //! - An operation picked by hand stays for good, whatever a check still running says; OK runs
 //!   what the window shows, and while the window still chooses, waits for its check.
 //! - A feature being edited keeps its operation.
+//! - With Preferences › Design › "Choose the operation automatically" off (`auto_operation`), no
+//!   window chooses: each keeps the operation it opens with, Extrude its own Join or Cut.
 //! - Only shown bodies take part: when some bodies are hidden, the window names the shown ones as
 //!   the feature's `targets` ([`scope_targets`]).
 
@@ -178,7 +180,8 @@ pub fn update(app: &mut SolveApp, d: &mut Dialog, ctx: &egui::Context) {
     app.op_check.poll();
     let picked = ctx.data_mut(|m| m.remove_temp::<bool>(picked_id())).unwrap_or(false);
     let Some(rule) = rule(&d.kind) else { return };
-    if d.editing.is_some() {
+    // Turned off in Preferences › Design: the window keeps its operation, as before.
+    if d.editing.is_some() || !app.preferences.auto_operation {
         return;
     }
     let Some(op) = operation(&mut d.kind).map(|op| *op) else { return };

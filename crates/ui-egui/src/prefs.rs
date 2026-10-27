@@ -933,6 +933,9 @@ preference_settings! {
     /// Extrude: with a profile picked, a face, vertex or parallel plane picked off its plane
     /// switches the extent to To Object (off: picks only add profiles, as before).
     extrude_auto_to_object: bool = false, PAGE_DESIGN => check("Extrude to a picked target", "In Extrude, with a profile picked, picking a face, vertex or parallel plane off its plane switches the extent to To Object");
+    /// Feature windows choose Join, New Body or Cut from what their material touches (`op_auto`,
+    /// #6901). Off: they keep the operation they open with (Extrude its own Join or Cut), as before.
+    auto_operation: bool = true, PAGE_DESIGN => check_id("prefs.auto_operation");
     /// Placing a Single hole snaps to the middle of the face and the centres of its round edges
     /// (`hole_place`). Off by default: a hole goes where it is clicked.
     hole_snaps: bool = false, PAGE_DESIGN => check("Snap to face and edge centres");
