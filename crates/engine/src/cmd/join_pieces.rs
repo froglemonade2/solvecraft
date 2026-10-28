@@ -50,7 +50,7 @@ impl crate::Ahead {
             .iter()
             .flat_map(|(_, p)| {
                 let p = p.get("params").filter(|_| p.get("command").is_some()).unwrap_or(p);
-                crate::params::string_list(p, "targets").into_iter().chain(crate::params::string_list(p, "participants"))
+                crate::params::string_list_or_default(p, "targets").into_iter().chain(crate::params::string_list_or_default(p, "participants"))
             })
             .collect();
         let candidates: Vec<&solidcraft_doc::ModelBody> = before
