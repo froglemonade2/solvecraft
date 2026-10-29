@@ -202,13 +202,29 @@ impl eframe::App for App {
         }
         solidcraft_ui_egui::recovery_ui::close(&mut self.solve);
         solidcraft_ui_egui::open_elsewhere::close(&mut self.solve);
-        // Before a restart below starts the next instance, which would otherwise get nothing from
-        // the 3D mouse driver (`solidcraft_3dx_client::stop`).
+        // Before a restart (`Drop for App`) starts the next instance, which would otherwise get
+        // nothing from the 3D mouse driver (`solidcraft_3dx_client::stop`).
         #[cfg(target_os = "macos")]
         solidcraft_3dx_client::stop();
         solidcraft_engine::crash::end_session();
-        if let Some(lost_at) = self.gpu.as_ref().and_then(|g| g.lost_at) {
-            device_lost::restart(self.gpu.as_ref().is_some_and(|g| g.restart_on_software), lost_at);
+        // The next start (after a lost device, or into an update) begins once the app is dropped
+        // (`Drop for App`), when the settings are on disk.
+    }
+}
+
+impl Drop for App {
+    /// eframe drops its settings storage first, which waits for `app.ron` to be written, then the
+    /// app, then the window and its GPU surface. So the next start begins here: started from
+    /// `on_exit`, it read `app.ron` while the old process was still writing it, found it
+    /// unreadable and moved it aside, resetting every setting (#9044).
+    fn drop(&mut self) {
+        if let Some(gpu) = &self.gpu
+            && let Some(lost_at) = gpu.lost_at
+        {
+            device_lost::restart(gpu.restart_on_software, lost_at, &gpu.reason);
+            // The window's GPU surface is still to be dropped, and on a lost device that may
+            // never return (#9044).
+            device_lost::end();
         }
         // An update asked to restart into the new version or to run its installer.
         if let Some((program, args)) = solidcraft_ui_egui::update::take_launch(&mut self.solve) {
@@ -236,6 +252,8 @@ struct LostWatch {
     restart_on_software: bool,
     /// When the loss was seen: the app is closing to start again.
     lost_at: Option<u64>,
+    /// Why, as wgpu said it: passed to the next start ([`device_lost::REASON_ENV`]).
+    reason: String,
 }
 
 impl App {
@@ -249,6 +267,7 @@ impl App {
         eprintln!("SolidCraft graphics: the device was lost ({reason}); starting again");
         solidcraft_engine::crash::phase(&format!("graphics device lost: {reason}"));
         gpu.lost_at = Some(device_lost::now_secs());
+        gpu.reason = reason;
         self.solve.quit_requested = true;
     }
 }
@@ -821,7 +840,11 @@ fn main() -> eframe::Result {
     // The launch before this one closed because its graphics device was lost (`App::watch_device`).
     let after_loss = device_lost::recent(std::env::var(device_lost::LOST_ENV).ok().as_deref(), device_lost::now_secs());
     if after_loss {
-        notes.push(device_lost::note(cpu_renderer));
+        let reason = std::env::var(device_lost::REASON_ENV).ok();
+        if let Some(reason) = device_lost::reason(reason.as_deref()) {
+            log::warn!("graphics: the last launch lost its device ({reason})");
+        }
+        notes.push(device_lost::note(cpu_renderer, reason.as_deref()));
     }
     if safe_mode {
         notes.push("Safe mode: default settings (yours are kept for the next normal start), no recovery offer, software rendering.".into());
@@ -961,6 +984,7 @@ fn main() -> eframe::Result {
                 lost: rs.device_lost.clone(),
                 restart_on_software: device_lost::restart_on_software(after_loss, cpu_renderer),
                 lost_at: None,
+                reason: String::new(),
             });
             if !safe_mode {
                 app.preferences.graphics_adapter =
