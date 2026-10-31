@@ -1713,6 +1713,100 @@ fn skill_reference_example_builds_as_documented() {
     holes_at(&mut s, 52.0);
 }
 
+/// The server instructions' recipe (primitives with expression fields, fillet before the shell,
+/// inside features after it, a blind hole with its depth, picks by world point, parameters
+/// checked in one coalesced batch and set back) builds the part it describes, with the volume
+/// worked out by hand, and follows its parameters, so the instructions and the engine stay in
+/// step whatever the kernel does.
+#[test]
+fn instructions_recipe_builds_a_parametric_shelled_box() {
+    // A box L × W × H with its four vertical edges rounded r, shelled from the top with wall t
+    // (the inner corners are r - t), a boss of radius R from the floor to the rim, and a blind
+    // hole Ø d, depth hd, down the boss.
+    let (fr, t, big_r, d, hd) = (5.0, 2.0, 6.0, 5.0, 10.0);
+    let expected = |l: f64, w: f64, h: f64| {
+        let corner = 4.0 * (1.0 - PI / 4.0);
+        let outer = l * w * h - corner * fr * fr * h;
+        let cavity = (l - 2.0 * t) * (w - 2.0 * t) * (h - t) - corner * (fr - t) * (fr - t) * (h - t);
+        let boss = PI * big_r * big_r * (h - t);
+        let hole = PI * (d / 2.0) * (d / 2.0) * hd;
+        outer - cavity + boss - hole
+    };
+    let mut s = server();
+    let r = tool(
+        &mut s,
+        "batch",
+        json!({"verbose": false, "commands": [
+            {"command": "parameters.add", "params": {"name": "L", "expression": "60 mm"}},
+            {"command": "parameters.add", "params": {"name": "W", "expression": "40 mm"}},
+            {"command": "parameters.add", "params": {"name": "H", "expression": "30 mm"}},
+            {"command": "parameters.add", "params": {"name": "wall", "expression": "2 mm"}},
+            {"command": "solid.box", "params": {"length": "L", "width": "W", "height": "H", "corner": [0, 0, 0], "name": "Block", "body_name": "Case"}},
+            {"command": "solid.fillet", "params": {"edges": [[0, 0, 15], [60, 0, 15], [60, 40, 15], [0, 40, 15]], "radius": fr, "name": "Corners"}},
+            {"command": "solid.shell", "params": {"faces": [[30, 20, 30]], "thickness": "wall", "name": "Hollow"}},
+            {"command": "solid.cylinder", "params": {"radius": big_r, "height": "H - wall", "base": ["L/2", "W/2", "wall"], "operation": "join", "name": "Boss"}},
+            {"command": "solid.hole", "params": {"position": ["L/2", "W/2", "H"], "diameter": d, "depth": hd, "name": "Pilot"}},
+            {"command": "measure", "params": {}},
+        ]}),
+    );
+    let results = r["results"].as_array().unwrap();
+    assert_eq!(results.len(), 10, "{r}");
+    let m = &results[9];
+    assert_eq!(m["bodies"].as_array().map(Vec::len), Some(1), "{m}");
+    assert!(rel(m["total"]["volume_mm3"].as_f64().unwrap(), expected(60.0, 40.0, 30.0)) < 1e-3, "{m}");
+    let no_errors = |s: &mut Server| {
+        let d = tool(s, "inspect_design", json!({"measure": false, "sketches": false}));
+        let failed: Vec<&Value> = d["timeline"].as_array().unwrap().iter().filter(|f| !f["error"].is_null()).collect();
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_eq!(d["timeline"].as_array().map(Vec::len), Some(5), "{d}");
+    };
+    no_errors(&mut s);
+    // The boss and the pilot hole are where the expressions put them.
+    let axes = |s: &mut Server, x: f64, y: f64| {
+        let topo = tool(s, "body_topology", json!({"body": "Case"}));
+        let cylinders: Vec<(f64, f64, f64)> = topo["faces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|f| f.get("cylinder"))
+            .map(|c| (c["origin"][0].as_f64().unwrap(), c["origin"][1].as_f64().unwrap(), c["radius"].as_f64().unwrap()))
+            .collect();
+        for radius in [big_r, d / 2.0] {
+            assert!(
+                cylinders.iter().any(|&(cx, cy, cr)| (cx - x).abs() < 1e-6 && (cy - y).abs() < 1e-6 && (cr - radius).abs() < 1e-6),
+                "no cylinder r {radius} on ({x}, {y}): {cylinders:?}"
+            );
+        }
+    };
+    axes(&mut s, 30.0, 20.0);
+    // Two parameters changed in one coalesced batch (one rebuild per run), measured, set back.
+    let r = tool(
+        &mut s,
+        "batch",
+        json!({"verbose": false, "coalesce_parameters": true, "commands": [
+            {"command": "parameters.change", "params": {"name": "L", "expression": "80 mm"}},
+            {"command": "parameters.change", "params": {"name": "W", "expression": "50 mm"}},
+            {"command": "measure", "params": {}},
+            {"command": "parameters.change", "params": {"name": "L", "expression": "60 mm"}},
+            {"command": "parameters.change", "params": {"name": "W", "expression": "40 mm"}},
+        ]}),
+    );
+    let results = r["results"].as_array().unwrap();
+    assert_eq!(results.len(), 5, "{r}");
+    assert_eq!(results[0]["coalesced"], 2, "{r}");
+    assert_eq!(results[0]["errors"].as_array().map(Vec::len), Some(0), "{r}");
+    let m = &results[2];
+    assert_eq!(m["bodies"].as_array().map(Vec::len), Some(1), "{m}");
+    assert!(rel(m["total"]["volume_mm3"].as_f64().unwrap(), expected(80.0, 50.0, 30.0)) < 1e-3, "{m}");
+    assert_eq!(results[3]["coalesced"], 2, "{r}");
+    assert_eq!(results[4]["errors"].as_array().map(Vec::len), Some(0), "{r}");
+    let m = tool(&mut s, "measure", json!({}));
+    assert_eq!(m["bodies"].as_array().map(Vec::len), Some(1), "{m}");
+    assert!(rel(m["total"]["volume_mm3"].as_f64().unwrap(), expected(60.0, 40.0, 30.0)) < 1e-3, "{m}");
+    no_errors(&mut s);
+    axes(&mut s, 30.0, 20.0);
+}
+
 /// The skill reference's sketch-plane table: where sketch (10, 20) lands and which way +distance goes.
 #[test]
 fn sketch_plane_axes_match_the_skill_reference() {
@@ -1838,18 +1932,29 @@ fn skills_name_only_real_tools_and_commands() {
     assert!(checked > 30, "only {checked} tool and command names found in the skills");
 }
 
-/// Every tool the server instructions name (a bare `snake_case` word in backticks) is a real tool.
+/// Every tool and command the server instructions name is real: a backticked `snake_case` word
+/// (bare or as a call, `measure {}`) is a tool, a dotted id (`solid.box`) a command in the
+/// engine's registry. A rename or removal can't leave the instructions sending agents to names
+/// the server no longer has.
 #[test]
 fn instructions_name_only_real_tools() {
     let mut s = server();
     let init = call(&mut s, 1, "initialize", json!({"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}));
     let text = init["result"]["instructions"].as_str().unwrap().to_owned();
     let tools: Vec<String> = tool_definitions().iter().map(|t| t["name"].as_str().unwrap().to_owned()).collect();
+    let commands: Vec<String> =
+        tool(&mut s, "list_commands", json!({})).as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).map(str::to_owned).collect();
+    let ident = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.');
+    // A span is `name`, `name {}` or `name {"json":…}`; `edges: [[x,y,z]]`, `verbose: false` and
+    // `"L/2 - 10"` are fields and values, not calls.
     let named: Vec<&str> =
-        text.split('`').skip(1).step_by(2).filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase() || c == '_')).collect();
-    assert!(named.contains(&"body_topology"), "{named:?}");
+        text.split('`').skip(1).step_by(2).map(|span| span.split_once(" {").map_or(span, |(head, _)| head)).filter(|w| ident(w)).collect();
+    for must in ["skill_reference", "batch", "measure", "body_topology", "pending", "solid.box", "parameters.change", "edit.restore_checkpoint"] {
+        assert!(named.contains(&must), "{named:?}");
+    }
     for name in named {
-        assert!(tools.iter().any(|t| t == name), "the instructions name `{name}`, which is not a tool");
+        let known = if name.contains('.') { commands.iter().any(|c| c == name) } else { tools.iter().any(|t| t == name) };
+        assert!(known, "the instructions name `{name}`, which is neither a tool nor a command");
     }
 }
 
