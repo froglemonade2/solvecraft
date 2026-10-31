@@ -638,9 +638,12 @@ impl Expect {
                     let off: Vec<String> = [("min", min, emin), ("max", max, emax)]
                         .into_iter()
                         .flat_map(|(side, m, e)| {
-                            ["x", "y", "z"].into_iter().zip(m).zip(e).filter_map(move |((axis, m), e)| {
-                                ((m - e).abs() > EXPECT_BBOX_TOL_MM).then(|| format!("{side} {axis} off by {} mm", num(m - e)))
-                            })
+                            ["x", "y", "z"]
+                                .into_iter()
+                                .zip(m)
+                                .zip(e)
+                                .filter(|&((_, m), e)| (m - e).abs() > EXPECT_BBOX_TOL_MM)
+                                .map(move |((axis, m), e)| format!("{side} {axis} off by {} mm", num(m - e)))
                         })
                         .collect();
                     if !off.is_empty() {
