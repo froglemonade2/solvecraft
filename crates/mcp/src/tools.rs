@@ -591,7 +591,7 @@ fn dispatch(b: &mut dyn Backend, name: &str, a: &Map<String, Value>) -> Result<V
             let edges = exec(b, "model.edges", p.clone())?;
             let faces = exec(b, "model.faces", p)?;
             Ok(match str_arg(a, "faces") {
-                Some("cylinders") => json!({"body": a.get("body"), "cylinders": cylinders(&faces["faces"], &edges["edges"])}),
+                Some("cylinders") => json!({"body": a.get("body"), "cylinders": topology_cylinders(&faces["faces"], &edges["edges"])}),
                 _ => json!({"body": a.get("body"), "edges": edges["edges"], "faces": faces["faces"]}),
             })
         }
@@ -1112,17 +1112,13 @@ fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
 fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
 
 /// One cylinder as `body_topology {faces: "cylinders"}` reports it: the faces that lie on it,
 /// merged by equal radius and the same axis line.
-struct Cylinder {
+struct TopoCylinder {
     radius: f64,
     origin: [f64; 3],
     /// Unit length.
@@ -1133,7 +1129,7 @@ struct Cylinder {
 }
 
 /// How far a point lies from the cylinder's axis line, and how far along it from the origin.
-fn axial(c: &Cylinder, p: [f64; 3]) -> (f64, f64) {
+fn axial(c: &TopoCylinder, p: [f64; 3]) -> (f64, f64) {
     let d = sub(p, c.origin);
     let along = dot(d, c.axis);
     let off = cross(d, c.axis);
@@ -1141,11 +1137,11 @@ fn axial(c: &Cylinder, p: [f64; 3]) -> (f64, f64) {
 }
 
 /// Does `p` lie on the cylinder's surface, within `tol`?
-fn on_cylinder(c: &Cylinder, p: [f64; 3], tol: f64) -> bool {
+fn on_cylinder(c: &TopoCylinder, p: [f64; 3], tol: f64) -> bool {
     (axial(c, p).0 - c.radius).abs() <= tol
 }
 
-fn widen(c: &mut Cylinder, p: [f64; 3]) {
+fn widen(c: &mut TopoCylinder, p: [f64; 3]) {
     let t = axial(c, p).1;
     c.extent = Some(match c.extent {
         Some((lo, hi)) => (lo.min(t), hi.max(t)),
@@ -1161,8 +1157,8 @@ const CYLINDER_TOL: f64 = 1e-3;
 /// direction up to sign), each with the extent along its axis that the body's own points on the
 /// cylinder span (the faces' `point`s and the ends and midpoints of the edges lying on it). Built
 /// from what `model.faces` and `model.edges` already reply, so it needs nothing of the kernel.
-fn cylinders(faces: &Value, edges: &Value) -> Value {
-    let mut found: Vec<Cylinder> = Vec::new();
+fn topology_cylinders(faces: &Value, edges: &Value) -> Value {
+    let mut found: Vec<TopoCylinder> = Vec::new();
     for f in faces.as_array().into_iter().flatten() {
         let c = &f["cylinder"];
         let (Some(radius), Some(origin), Some(axis)) = (c["radius"].as_f64(), xyz(&c["origin"]), xyz(&c["axis"])) else { continue };
@@ -1173,7 +1169,7 @@ fn cylinders(faces: &Value, edges: &Value) -> Value {
         let axis = [axis[0] / len, axis[1] / len, axis[2] / len];
         // The same cylinder: the same radius and axis direction (either way round), and this
         // face's origin on that axis line.
-        let same = |k: &Cylinder| {
+        let same = |k: &TopoCylinder| {
             let off = cross(sub(origin, k.origin), k.axis);
             (k.radius - radius).abs() <= CYLINDER_TOL && dot(k.axis, axis).abs() >= 1.0 - 1e-6 && dot(off, off).sqrt() <= CYLINDER_TOL
         };
@@ -1181,7 +1177,7 @@ fn cylinders(faces: &Value, edges: &Value) -> Value {
         let at = match found.iter().position(same) {
             Some(i) => i,
             None => {
-                found.push(Cylinder { radius, origin, axis, extent: None, names: Vec::new() });
+                found.push(TopoCylinder { radius, origin, axis, extent: None, names: Vec::new() });
                 found.len() - 1
             }
         };
