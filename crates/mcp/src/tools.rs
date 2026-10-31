@@ -632,7 +632,7 @@ impl Expect {
             mismatch.push(format!("bodies: measured {bodies}, expected {e}"));
         }
         if let Some((emin, emax)) = self.bbox {
-            let expected = format!("min {} max {}", xyz(emin), xyz(emax));
+            let expected = format!("min {} max {}", xyz_text(emin), xyz_text(emax));
             match bbox {
                 Some((min, max)) => {
                     let off: Vec<String> = [("min", min, emin), ("max", max, emax)]
@@ -647,7 +647,12 @@ impl Expect {
                         })
                         .collect();
                     if !off.is_empty() {
-                        mismatch.push(format!("bbox: measured min {} max {}, expected {expected} ({})", xyz(min), xyz(max), off.join(", ")));
+                        mismatch.push(format!(
+                            "bbox: measured min {} max {}, expected {expected} ({})",
+                            xyz_text(min),
+                            xyz_text(max),
+                            off.join(", ")
+                        ));
                     }
                 }
                 None => mismatch.push(format!("bbox: no body to measure, expected {expected}")),
@@ -678,7 +683,7 @@ fn num(x: f64) -> String {
     format!("{}", if r == 0.0 { 0.0 } else { r })
 }
 
-fn xyz(c: [f64; 3]) -> String {
+fn xyz_text(c: [f64; 3]) -> String {
     format!("[{}, {}, {}]", num(c[0]), num(c[1]), num(c[2]))
 }
 
