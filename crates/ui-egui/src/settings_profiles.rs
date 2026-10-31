@@ -1,7 +1,9 @@
 //! Settings profiles (#6237): the input and interface settings kept together under a name, such
 //! as "Laptop" and "Large monitor", and switched at once. A profile holds the preferences of the
 //! Interface, Navigation and Sketch pages and the language, the keyboard shortcuts, the toolbar
-//! and the S box favourites, and the imported theme it uses. Machine-specific settings stay out:
+//! and the S box favourites, the imported theme it uses, and the custom view navigator's body
+//! (when one is chosen; a profile without one leaves the current body alone). Machine-specific
+//! settings stay out:
 //! the 3D mouse, graphics, recent files and the AI pages.
 //!
 //! A profile is kept, exported and imported as one `solidcraft-profile/1` document. Every
@@ -140,7 +142,7 @@ pub fn capture(app: &SolveApp, name: &str) -> Value {
     let all = serde_json::to_value(&app.preferences).unwrap_or_default();
     let preferences: Map<String, Value> = keys().filter_map(|key| Some((key.to_string(), all.get(key)?.clone()))).collect();
     let themes: Vec<Value> = app.preferences.custom_themes.iter().filter(|t| t.id == app.preferences.theme).map(theme_document).collect();
-    json!({
+    let mut doc = json!({
         "format": FORMAT,
         "name": name,
         "preferences": preferences,
@@ -148,7 +150,12 @@ pub fn capture(app: &SolveApp, name: &str) -> Value {
         "favourites": app.sbox.pinned,
         "toolbar": app.toolbar_custom.prefs(),
         "themes": themes,
-    })
+    });
+    let gizmo = app.view_gizmo.stored();
+    if let Some(o) = doc.as_object_mut().filter(|_| gizmo.is_object()) {
+        o.insert("view_gizmo".into(), gizmo);
+    }
+    doc
 }
 
 /// An imported theme as a theme file that also keeps the id the profile's `theme` names.
@@ -222,7 +229,7 @@ pub fn sanitize(v: &Value) -> Result<Value, String> {
             Err(e) => log::warn!("settings profile `{name}`: a theme is left out: {e}"),
         }
     }
-    let doc = json!({
+    let mut doc = json!({
         "format": FORMAT,
         "name": name,
         "preferences": preferences,
@@ -231,6 +238,16 @@ pub fn sanitize(v: &Value) -> Result<Value, String> {
         "toolbar": toolbar.prefs(),
         "themes": themes,
     });
+    if let Some(v) = o.get("view_gizmo") {
+        match crate::view_gizmo::Shape::from_json(v) {
+            Some(shape) => {
+                if let Some(d) = doc.as_object_mut() {
+                    d.insert("view_gizmo".into(), shape.to_json());
+                }
+            }
+            None => log::warn!("settings profile `{name}`: the view navigator's body can't be read; left out"),
+        }
+    }
     if doc.to_string().len() > MAX_PROFILE_BYTES {
         return Err(format!("a settings profile is at most {} KiB", MAX_PROFILE_BYTES / 1024));
     }
@@ -287,6 +304,9 @@ fn apply(app: &mut SolveApp, doc: &Value) -> Vec<String> {
     }
     if let Some(t) = doc.get("toolbar") {
         app.toolbar_custom.load(t);
+    }
+    if let Some(v) = doc.get("view_gizmo") {
+        app.view_gizmo.load(Some(v));
     }
     skipped
 }

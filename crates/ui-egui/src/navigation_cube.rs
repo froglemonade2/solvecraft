@@ -119,7 +119,7 @@ pub(super) fn drag_origin(cam: &Camera, centre: Pos2, pointer: Pos2, scale: f32)
     hit(&facets(cam, centre, HALF * f64::from(scale)), pointer).is_some()
 }
 
-fn navigate(app: &mut SolveApp, action: Option<&str>, dir: Option<Vec3>) {
+pub(super) fn navigate(app: &mut SolveApp, action: Option<&str>, dir: Option<Vec3>) {
     // Same as arrow-key steps (#8912): turn from where a glide in flight is going, so rapid
     // clicks add full turns instead of restarting from a mid-animation camera.
     let from = app.cam_anim.map_or(app.cam, |a| a.to);
@@ -143,6 +143,13 @@ fn control(app: &mut SolveApp, ui: &mut egui::Ui, bounds: Rect, action: &str, to
     let hover = response.hovered();
     if response.clicked() {
         navigate(app, Some(action), None);
+    }
+    // The control takes the right-click from the viewport under it: open the gizmo's menu.
+    if response.secondary_clicked()
+        && app.dialog.is_none()
+        && let Some(at) = response.interact_pointer_pos()
+    {
+        crate::context_menu::open_for(app, at, crate::context_menu::Target::ViewGizmo);
     }
     hover
 }
@@ -198,34 +205,8 @@ pub(super) fn show(app: &mut SolveApp, ui: &mut egui::Ui, rect: Rect) {
         }
     }
     let square_on = faces.iter().filter(|f| f.text_axes.is_some()).count() == 1;
-    let (distance, button_size) = if square_on { (54.0, 20.0) } else { (74.0, 16.0) };
-    for (action, offset, direction, tooltip) in [
-        ("left", vec2(-distance, 0.0), vec2(1.0, 0.0), "Orbit left 90°"),
-        ("right", vec2(distance, 0.0), vec2(-1.0, 0.0), "Orbit right 90°"),
-        ("up", vec2(0.0, -distance), vec2(0.0, 1.0), "Orbit up 90°"),
-        ("down", vec2(0.0, distance), vec2(0.0, -1.0), "Orbit down 90°"),
-    ] {
-        let at = c + offset * scale;
-        let hovered = control(app, ui, Rect::from_center_size(at, vec2(button_size, button_size) * scale), action, tooltip);
-        if active {
-            arrow(&painter, at, direction * scale, hovered, t);
-        }
-    }
-    for (action, offset, size, clockwise, tooltip) in [
-        ("counterclockwise", vec2(42.0, -72.0), vec2(40.0, 20.0), false, "Rotate view counterclockwise 90°"),
-        ("clockwise", vec2(72.0, -42.0), vec2(20.0, 40.0), true, "Rotate view clockwise 90°"),
-    ] {
-        let hovered = control(app, ui, Rect::from_center_size(c + offset * scale, size * scale), action, tooltip);
-        if active {
-            curved_arrow(&painter, c + vec2(42.0, -42.0) * scale, clockwise, hovered, t, scale);
-        }
-    }
-    let home = Rect::from_center_size(c + vec2(-65.0, -65.0) * scale, vec2(26.0, 26.0) * scale);
-    crate::scenario::publish_target("axis_view:home", home);
-    let home_hover = control(app, ui, home, "home", "Home: isometric view and fit model");
-    if active {
-        icons::paint_icon(&painter, home.shrink(4.0 * scale), "home", f32::from((if home_hover { t.accent } else { t.cube_face }).a()) / 255.0);
-    }
+    arrows(app, ui, &painter, c, scale, active, square_on, t);
+    home(app, ui, &painter, c, scale, active, t);
     let fit = Rect::from_center_size(c + vec2(67.0, 67.0) * scale, vec2(22.0, 22.0) * scale);
     let fit_hover = control(app, ui, fit, "fit", "Fit model in view");
     if active {
@@ -238,6 +219,44 @@ pub(super) fn show(app: &mut SolveApp, ui: &mut egui::Ui, rect: Rect) {
         let tip = origin + vec2((d.dot(r) * 17.0) as f32, -(d.dot(u) * 17.0) as f32) * scale;
         painter.line_segment([origin, tip], Stroke::new(1.5, color));
         painter.text(tip, Align2::CENTER_CENTER, label, FontId::proportional(crate::theme::Tokens::get().font_triad), color);
+    }
+}
+
+/// The Home button at the top left of a gizmo centred at `c`, painted while it is `active`.
+pub(super) fn home(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, c: Pos2, scale: f32, active: bool, t: Tokens) {
+    let home = Rect::from_center_size(c + vec2(-65.0, -65.0) * scale, vec2(26.0, 26.0) * scale);
+    crate::scenario::publish_target("axis_view:home", home);
+    let home_hover = control(app, ui, home, "home", "Home: isometric view and fit model");
+    if active {
+        icons::paint_icon(painter, home.shrink(4.0 * scale), "home", f32::from((if home_hover { t.accent } else { t.cube_face }).a()) / 255.0);
+    }
+}
+
+/// The four orbit arrows and the two roll arrows around a gizmo centred at `c`: nearer and larger
+/// while a cube face is square on, painted while the gizmo is `active`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn arrows(app: &mut SolveApp, ui: &mut egui::Ui, painter: &egui::Painter, c: Pos2, scale: f32, active: bool, square_on: bool, t: Tokens) {
+    let (distance, button_size) = if square_on { (54.0, 20.0) } else { (74.0, 16.0) };
+    for (action, offset, direction, tooltip) in [
+        ("left", vec2(-distance, 0.0), vec2(1.0, 0.0), "Orbit left 90°"),
+        ("right", vec2(distance, 0.0), vec2(-1.0, 0.0), "Orbit right 90°"),
+        ("up", vec2(0.0, -distance), vec2(0.0, 1.0), "Orbit up 90°"),
+        ("down", vec2(0.0, distance), vec2(0.0, -1.0), "Orbit down 90°"),
+    ] {
+        let at = c + offset * scale;
+        let hovered = control(app, ui, Rect::from_center_size(at, vec2(button_size, button_size) * scale), action, tooltip);
+        if active {
+            arrow(painter, at, direction * scale, hovered, t);
+        }
+    }
+    for (action, offset, size, clockwise, tooltip) in [
+        ("counterclockwise", vec2(42.0, -72.0), vec2(40.0, 20.0), false, "Rotate view counterclockwise 90°"),
+        ("clockwise", vec2(72.0, -42.0), vec2(20.0, 40.0), true, "Rotate view clockwise 90°"),
+    ] {
+        let hovered = control(app, ui, Rect::from_center_size(c + offset * scale, size * scale), action, tooltip);
+        if active {
+            curved_arrow(painter, c + vec2(42.0, -42.0) * scale, clockwise, hovered, t, scale);
+        }
     }
 }
 
