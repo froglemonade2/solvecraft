@@ -326,6 +326,115 @@ fn agent_builds_box_fillet_hole() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A 60 × 40 × 10 plate with two Ø6 holes at x 15 and 45 and a Ø10 × 8 boss in the middle, all
+/// on y 20 and along Z: three cylinders, the halves the kernel splits them into merged.
+fn plate_with_holes_and_boss(s: &mut Server) {
+    let r = tool(
+        s,
+        "batch",
+        json!({"commands": [
+            {"command": "sketch.create", "params": {"plane": "XY"}},
+            {"command": "sketch.rectangle.two_point", "params": {"p0": [0, 0], "p1": [60, 40]}},
+            {"command": "sketch.finish"},
+            {"command": "solid.extrude", "params": {"distance": 10}},
+            {"command": "sketch.create", "params": {"plane": "XY"}},
+            {"command": "sketch.circle.center", "params": {"center": [15, 20], "radius": 3}},
+            {"command": "sketch.circle.center", "params": {"center": [45, 20], "radius": 3}},
+            {"command": "sketch.finish"},
+            {"command": "solid.extrude", "params": {"distance": 10, "operation": "cut"}},
+            {"command": "solid.cylinder", "params": {"radius": 5, "height": 8, "base": [30, 20, 10], "operation": "join"}},
+        ]}),
+    );
+    assert_eq!(r["completed"], 10, "{r}");
+}
+
+/// `body_topology {faces: "cylinders"}` answers where the holes and bosses are in a few lines:
+/// one entry per cylinder with its radius, axis line and extent, and no edges (#3380).
+#[test]
+fn body_topology_lists_merged_cylinders_with_their_extent() {
+    let mut s = server();
+    plate_with_holes_and_boss(&mut s);
+    let full = tool(&mut s, "body_topology", json!({"body": "Body1"}));
+    let halves = full["faces"].as_array().unwrap().iter().filter(|f| f["cylinder"].is_object()).count();
+    assert!(halves >= 3, "{full}");
+
+    let topo = tool(&mut s, "body_topology", json!({"body": "Body1", "faces": "cylinders"}));
+    assert_eq!(topo["body"], "Body1", "{topo}");
+    assert!(topo.get("edges").is_none() && topo.get("faces").is_none(), "{topo}");
+    let found = topo["cylinders"].as_array().unwrap();
+    assert_eq!(found.len(), 3, "{topo}");
+    assert_eq!(found.iter().map(|c| c["names"].as_array().unwrap().len()).sum::<usize>(), halves, "{topo}");
+    assert!(topo.to_string().len() * 4 < full.to_string().len(), "{} vs {} bytes", topo.to_string().len(), full.to_string().len());
+    // Each cylinder: (x of its axis, radius, the z its extent spans), its axis along Z.
+    let mut seen: Vec<(i64, i64, i64, i64)> = found
+        .iter()
+        .map(|c| {
+            let axis: Vec<f64> = c["axis"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+            let origin: Vec<f64> = c["origin"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+            assert!(axis[2].abs() > 1.0 - 1e-6, "{c}");
+            assert!((origin[1] - 20.0).abs() < 1e-3, "{c}");
+            let extent: Vec<f64> = c["extent"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+            let mut z: Vec<f64> = extent.iter().map(|t| origin[2] + t * axis[2]).collect();
+            z.sort_by(|a, b| a.total_cmp(b));
+            let mm = |v: f64| (v * 1000.0).round() as i64;
+            (mm(origin[0]), mm(c["radius"].as_f64().unwrap()), mm(z[0]), mm(z[1]))
+        })
+        .collect();
+    seen.sort_unstable();
+    assert_eq!(seen, vec![(15000, 3000, 0, 10000), (30000, 5000, 10000, 18000), (45000, 3000, 0, 10000)], "{topo}");
+    // Every merged half is a real face name, so the entry picks the face too.
+    let names: Vec<&str> = found.iter().flat_map(|c| c["names"].as_array().unwrap()).filter_map(Value::as_str).collect();
+    let real: Vec<&str> = full["faces"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
+    assert!(!names.is_empty() && names.iter().all(|n| real.contains(n)), "{names:?} in {real:?}");
+
+    // The default is unchanged, and a value outside the enum is refused by argument checking.
+    let same = tool(&mut s, "body_topology", json!({"body": "Body1", "faces": "all"}));
+    assert_eq!(same, full);
+    let r = raw_tool(&mut s, "body_topology", json!({"body": "Body1", "faces": "planes"}));
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+    assert!(r["error"]["message"].as_str().unwrap().contains("cylinders"), "{r}");
+}
+
+/// `measure {summary: true}` keeps what a stage check needs, as a tool and as a batch step (#3380).
+#[test]
+fn measure_summary_keeps_only_the_check_fields() {
+    let mut s = server();
+    plate_with_holes_and_boss(&mut s);
+    let full = tool(&mut s, "measure", json!({}));
+    let m = tool(&mut s, "measure", json!({"summary": true}));
+    let keys = |v: &Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
+    assert_eq!(keys(&m), ["bodies", "body_count", "total"], "{m}");
+    assert_eq!(keys(&m["total"]), ["volume_mm3"], "{m}");
+    assert_eq!(m["body_count"], 1, "{m}");
+    let b = &m["bodies"][0];
+    assert_eq!(keys(b), ["bbox", "closed", "faces", "name", "volume_mm3"], "{m}");
+    assert_eq!(b["name"], "Body1");
+    assert_eq!(b["closed"], true);
+    assert_eq!(b["faces"], full["bodies"][0]["faces"]);
+    assert_eq!(b["bbox"], full["bodies"][0]["bbox"]);
+    let expect = 60.0 * 40.0 * 10.0 - 2.0 * PI * 9.0 * 10.0 + PI * 25.0 * 8.0;
+    let v = m["total"]["volume_mm3"].as_f64().unwrap();
+    assert_eq!(v, full["total"]["volume_mm3"].as_f64().unwrap(), "{m}");
+    assert_eq!(b["volume_mm3"].as_f64().unwrap(), full["bodies"][0]["volume_mm3"].as_f64().unwrap(), "{m}");
+    assert!(rel(v, expect) < 1e-3, "{v} vs {expect}");
+    assert!(m.to_string().len() * 2 < full.to_string().len(), "{} vs {} bytes", m.to_string().len(), full.to_string().len());
+    // One body by name, and the default unchanged.
+    let one = tool(&mut s, "measure", json!({"body": "Body1", "summary": true}));
+    assert_eq!(one, m);
+    assert_eq!(tool(&mut s, "measure", json!({"summary": false})), full);
+
+    // As a batch step, the same reply.
+    let r = tool(
+        &mut s,
+        "batch",
+        json!({"commands": [{"command": "measure", "params": {"summary": true}}, {"command": "measure", "params": {"body": "Body1"}}]}),
+    );
+    assert_eq!(r["completed"], 2, "{r}");
+    assert_eq!(r["results"][0], m, "{r}");
+    assert_eq!(r["results"][1], full, "{r}");
+    assert_eq!(raw_tool(&mut s, "measure", json!({"summary": "yes"}))["error"]["code"], -32602);
+}
+
 /// `open` hands `up` and `names` to the STEP import, and the tool's schema refuses other values.
 #[test]
 fn open_stands_a_y_up_step_file_up() {
